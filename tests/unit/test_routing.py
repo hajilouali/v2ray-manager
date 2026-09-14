@@ -19,7 +19,16 @@ def test_global_preset_has_no_rules():
 
 def test_xray_global_preset_is_just_catch_all():
     rules = xray_rules(GLOBAL)
-    assert rules == [{"type": "field", "outboundTag": "proxy"}]
+    # port: 0-65535 is required -- Xray-core rejects a rule with no
+    # "effective fields" at all (a bare outboundTag doesn't count), even
+    # when it's an intentional catch-all.
+    assert rules == [{"type": "field", "outboundTag": "proxy", "port": "0-65535"}]
+
+
+def test_xray_catch_all_rule_has_an_effective_field():
+    rules = xray_rules(GLOBAL)
+    catch_all = rules[-1]
+    assert set(catch_all) - {"type", "outboundTag"}, "catch-all rule must have a real matching field"
 
 
 def test_xray_bypass_ir_splits_domain_and_ip_into_separate_rules():
@@ -29,7 +38,7 @@ def test_xray_bypass_ir_splits_domain_and_ip_into_separate_rules():
     # instead of the OR the preset intends.
     for rule in rules[:-1]:
         assert ("domain" in rule) != ("ip" in rule)
-    assert rules[-1] == {"type": "field", "outboundTag": "proxy"}
+    assert rules[-1] == {"type": "field", "outboundTag": "proxy", "port": "0-65535"}
 
 
 def test_xray_domain_rule_uses_prefixed_values():

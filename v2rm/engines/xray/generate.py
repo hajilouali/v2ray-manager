@@ -193,5 +193,9 @@ def build_routing_rules(route_plan: RoutePlan) -> list[dict[str, Any]]:
             ip_values.extend(f"geoip:{g}" for g in rule.geoip)
             rules.append({"type": "field", "ip": ip_values, "outboundTag": rule.kind})
 
-    rules.append({"type": "field", "outboundTag": "proxy"})
+    # Xray-core (confirmed on 26.3.27) refuses to start a rule with no
+    # "effective fields" at all -- a bare outboundTag doesn't count, even
+    # as an intentional catch-all -- so the fallback rule needs a real
+    # matching field. port: 0-65535 matches literally every connection.
+    rules.append({"type": "field", "outboundTag": "proxy", "port": "0-65535"})
     return rules
