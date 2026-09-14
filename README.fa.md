@@ -28,7 +28,7 @@ cd v2ray-manager
 pipx install .
 ```
 
-(اگر `pipx` ندارید، `pip install --user .` هم کار می‌کند.)
+(اگر `pipx` ندارید، `pip install --user .` هم کار می‌کند — ولی اگر بعدش دستور `v2rm` پیدا نشد، تقریباً همیشه مسئله‌ی `PATH` است نه خرابی نصب: pip فایل اجرایی را در `~/.local/bin` می‌گذارد که همیشه در `PATH` نیست، مخصوصاً برای کاربر `root`. با این دستور حلش کنید: `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc`؛ یا به‌جایش با `pip install .` ساده به‌صورت سراسری نصب کنید.)
 
 سپس حداقل یکی از هسته‌ها را نصب کنید:
 

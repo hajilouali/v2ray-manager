@@ -28,7 +28,7 @@ cd v2ray-manager
 pipx install .
 ```
 
-(No `pipx`? `pip install --user .` works too.)
+(No `pipx`? `pip install --user .` works too -- though if `v2rm` isn't found afterward, it's almost always a `PATH` issue, not a broken install: pip puts the script in `~/.local/bin`, which isn't always on `PATH` by default, especially for `root`. Fix it with `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc`, or install system-wide instead with plain `pip install .`.)
 
 Then install at least one engine:
 
