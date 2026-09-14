@@ -1,5 +1,13 @@
 [build-system]
-requires = ["hatchling"]
+# packaging>=24.2 is pinned explicitly (not just pulled in transitively by
+# hatchling) because some older hatchling releases -- e.g. what a distro's
+# system package manager ships -- unconditionally import
+# packaging.licenses while computing metadata even for a plain `license`
+# table, and that submodule doesn't exist before packaging 24.2. Without
+# this pin, pip's build-isolation venv can end up with an older packaging
+# that's missing it, and `pip install .` fails with
+# "ModuleNotFoundError: No module named 'packaging.licenses'".
+requires = ["hatchling", "packaging>=24.2"]
 build-backend = "hatchling.build"
 
 [project]
@@ -7,13 +15,14 @@ name = "v2rm"
 version = "0.1.0"
 description = "A friendly CLI manager for Xray-core and sing-box on Linux -- add links/subscriptions, test configs for real, and switch connections without ever touching your system-wide proxy settings."
 readme = "README.md"
-license = "MIT"
+license = { text = "MIT" }
 requires-python = ">=3.10"
 authors = [{ name = "v2rm contributors" }]
 keywords = ["xray", "v2ray", "sing-box", "vless", "vmess", "trojan", "proxy", "socks", "cli"]
 classifiers = [
   "Environment :: Console",
   "Intended Audience :: End Users/Desktop",
+  "License :: OSI Approved :: MIT License",
   "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3",
   "Topic :: Internet :: Proxy Servers",
