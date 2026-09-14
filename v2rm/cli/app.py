@@ -7,8 +7,12 @@ from rich.console import Console
 
 from v2rm import __version__
 from v2rm.cli.add import add_command
+from v2rm.cli.backup import export_command, import_command
 from v2rm.cli.connect import connect_command, disconnect_command, status_command
 from v2rm.cli.core import core_app
+from v2rm.cli.doctor import doctor_command
+from v2rm.cli.env import env_command, exec_command
+from v2rm.cli.port import port_app
 from v2rm.cli.profile import profile_app
 from v2rm.cli.route import route_app
 from v2rm.cli.sub import sub_app
@@ -30,10 +34,16 @@ app.command(name="connect")(connect_command)
 app.command(name="disconnect")(disconnect_command)
 app.command(name="status")(status_command)
 app.command(name="test")(test_command)
+app.command(name="env")(env_command)
+app.command(name="exec", context_settings={"ignore_unknown_options": True})(exec_command)
+app.command(name="export")(export_command)
+app.command(name="import")(import_command)
+app.command(name="doctor")(doctor_command)
 app.add_typer(profile_app, name="profile")
 app.add_typer(core_app, name="core")
 app.add_typer(sub_app, name="sub")
 app.add_typer(route_app, name="route")
+app.add_typer(port_app, name="port")
 
 
 @app.callback(invoke_without_command=True)
