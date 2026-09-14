@@ -25,10 +25,12 @@ Requires Python 3.10+ on Linux.
 ```bash
 git clone https://github.com/hajilouali/v2ray-manager.git
 cd v2ray-manager
-pipx install .
+./install.sh
 ```
 
-(No `pipx`? `pip install --user .` works too -- though if `v2rm` isn't found afterward, it's almost always a `PATH` issue, not a broken install: pip puts the script in `~/.local/bin`, which isn't always on `PATH` by default, especially for `root`. Fix it with `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc`, or install system-wide instead with plain `pip install .`.)
+`install.sh` installs [pipx](https://pipx.pypa.io/) first if it isn't already present, installs v2rm with it, and runs `pipx ensurepath` -- so `v2rm` ends up on `PATH` without any manual step. (Like any PATH change, it only takes effect in *new* shells -- the script tells you if you need to open one or `source` your shell's rc file.)
+
+Prefer doing it by hand? `pipx install .` works the same way; `pip install --user .` also works but **won't** fix `PATH` for you -- if `v2rm` isn't found afterward, that's almost always why: pip puts the script in `~/.local/bin`, which isn't always on `PATH` by default, especially for `root`. Fix it with `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc`, or install system-wide instead with plain `pip install .`.
 
 Then install at least one engine:
 
