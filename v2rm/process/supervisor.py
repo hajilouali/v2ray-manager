@@ -6,6 +6,7 @@ import os
 import signal
 import socket
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -181,6 +182,71 @@ def connect(
     raise ConnectFailedError(
         f"{engine.value} did not start listening on port {socks_port} in time. Last log lines:\n{_tail_log()}"
     )
+
+
+@contextlib.contextmanager
+def run_temporary(
+    profile: Profile,
+    engine: EngineKind,
+    route_plan: RoutePlan,
+    socks_port: int,
+    http_port: int,
+    start_timeout: float = CONNECT_POLL_TIMEOUT,
+):
+    """Launch a short-lived, throwaway engine instance for real connectivity
+    testing. Fully independent of the persistent connection's pidfile/
+    config/log -- safe to run several of these concurrently (e.g. `test
+    --all`) and safe to run alongside an existing `connect`ed session
+    without disturbing it."""
+    binary = _binary_path(engine)
+
+    from v2rm.engines import generate_config
+
+    config = generate_config(engine, profile, route_plan, socks_port, http_port)
+
+    with tempfile.TemporaryDirectory(prefix="v2rm-test-") as tmp_dir:
+        config_path = Path(tmp_dir) / "config.json"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        log_path = Path(tmp_dir) / "engine.log"
+
+        env = dict(os.environ)
+        env["XRAY_LOCATION_ASSET"] = str(paths.geo_assets_dir())
+
+        with log_path.open("wb") as log_fh:
+            popen_kwargs: dict[str, Any] = {"stdout": log_fh, "stderr": subprocess.STDOUT, "env": env}
+            if os.name == "posix":
+                popen_kwargs["start_new_session"] = True
+            proc = subprocess.Popen([str(binary), "run", "-c", str(config_path)], **popen_kwargs)
+
+        try:
+            deadline = time.monotonic() + start_timeout
+            started = False
+            while time.monotonic() < deadline:
+                if proc.poll() is not None:
+                    break
+                if _port_open(socks_port):
+                    started = True
+                    break
+                time.sleep(CONNECT_POLL_INTERVAL)
+
+            if not started:
+                tail = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
+                raise ConnectFailedError(
+                    f"{engine.value} did not start in time for the test. Last log lines:\n{tail[-2000:]}"
+                )
+
+            yield
+        finally:
+            if proc.poll() is None:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    with contextlib.suppress(ProcessLookupError):
+                        proc.kill()
+                    with contextlib.suppress(subprocess.TimeoutExpired):
+                        proc.wait(timeout=3)
 
 
 def disconnect() -> None:
