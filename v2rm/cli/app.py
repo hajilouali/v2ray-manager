@@ -8,6 +8,7 @@ from rich.console import Console
 from v2rm import __version__
 from v2rm.cli.add import add_command
 from v2rm.cli.connect import connect_command, disconnect_command, status_command
+from v2rm.cli.core import core_app
 from v2rm.cli.profile import profile_app
 from v2rm.errors import V2rmError
 from v2rm.store import paths
@@ -26,6 +27,7 @@ app.command(name="connect")(connect_command)
 app.command(name="disconnect")(disconnect_command)
 app.command(name="status")(status_command)
 app.add_typer(profile_app, name="profile")
+app.add_typer(core_app, name="core")
 
 
 @app.callback(invoke_without_command=True)
@@ -37,8 +39,13 @@ def _root(ctx: typer.Context) -> None:
 
 @app.command()
 def version() -> None:
-    """Show the v2rm version."""
+    """Show the v2rm version and installed engine versions."""
+    from v2rm.coredl.install import current_version
+
     console.print(f"v2rm [bold]{__version__}[/bold]")
+    for engine in ("xray", "singbox"):
+        v = current_version(engine)
+        console.print(f"  {engine:<8} {v if v else '[dim]not installed[/dim]'}")
 
 
 def main() -> None:

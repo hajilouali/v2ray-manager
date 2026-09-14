@@ -63,6 +63,10 @@ def engine_current_link(engine: str) -> Path:
     return engine_dir(engine) / "current"
 
 
+def engine_current_version_file(engine: str) -> Path:
+    return engine_dir(engine) / "current.txt"
+
+
 def engine_binary_path(engine: str) -> Path:
     binary_name = "xray" if engine == "xray" else "sing-box"
     return engine_current_link(engine) / binary_name
