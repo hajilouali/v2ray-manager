@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "v2rm"
+version = "0.1.0"
+description = "A friendly CLI manager for Xray-core and sing-box on Linux -- add links/subscriptions, test configs for real, and switch connections without ever touching your system-wide proxy settings."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "v2rm contributors" }]
+keywords = ["xray", "v2ray", "sing-box", "vless", "vmess", "trojan", "proxy", "socks", "cli"]
+classifiers = [
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Topic :: Internet :: Proxy Servers",
+  "Topic :: Utilities",
+]
+dependencies = [
+  "typer>=0.12",
+  "rich>=13.7",
+  "requests>=2.31",
+  "PySocks>=1.7.1",
+  "PyYAML>=6.0",
+  "platformdirs>=4.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-cov>=5.0"]
+
+[project.scripts]
+v2rm = "v2rm.cli.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["v2rm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "integration: requires a real Linux host, real engine binaries, and/or network access",
+]
