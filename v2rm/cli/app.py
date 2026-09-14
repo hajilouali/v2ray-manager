@@ -12,6 +12,7 @@ from v2rm.cli.connect import connect_command, disconnect_command, status_command
 from v2rm.cli.core import core_app
 from v2rm.cli.doctor import doctor_command
 from v2rm.cli.env import env_command, exec_command
+from v2rm.cli.menu import run_menu
 from v2rm.cli.port import port_app
 from v2rm.cli.profile import profile_app
 from v2rm.cli.route import route_app
@@ -49,8 +50,14 @@ app.add_typer(port_app, name="port")
 @app.callback(invoke_without_command=True)
 def _root(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand is None:
-        console.print(ctx.get_help())
+        run_menu()
         raise typer.Exit()
+
+
+@app.command(name="menu")
+def menu_command() -> None:
+    """Launch the interactive menu (same as running `v2rm` with no arguments)."""
+    run_menu()
 
 
 @app.command()
