@@ -23,7 +23,7 @@
 Requires Python 3.10+ on Linux.
 
 ```bash
-git clone https://github.com/<you>/v2ray-manager.git
+git clone https://github.com/hajilouali/v2ray-manager.git
 cd v2ray-manager
 pipx install .
 ```
