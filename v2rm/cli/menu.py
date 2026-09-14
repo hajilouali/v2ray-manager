@@ -9,8 +9,10 @@ from v2rm.cli.sub import update_subscription
 from v2rm.cli.test import test_command
 from v2rm.errors import V2rmError
 from v2rm.models.profile import Profile
+from v2rm.models.subscription import Subscription
 from v2rm.process import supervisor
 from v2rm.store.profiles import ProfileStore
+from v2rm.store.subscriptions import SubscriptionStore
 
 console = Console()
 
@@ -53,6 +55,20 @@ def _pick_profile(prompt: str) -> Profile | None:
     return profiles[idx - 1]
 
 
+def _pick_subscription(prompt: str) -> Subscription | None:
+    subs = SubscriptionStore().list()
+    if not subs:
+        console.print("[yellow]No subscriptions yet -- add one first.[/yellow]")
+        return None
+
+    for i, s in enumerate(subs, start=1):
+        console.print(f"  {i}) {s.name} [dim]({s.url})[/dim]")
+    idx = IntPrompt.ask(prompt, default=0)
+    if idx < 1 or idx > len(subs):
+        return None
+    return subs[idx - 1]
+
+
 def _connect_flow() -> None:
     profile = _pick_profile("Connect to profile #")
     if profile is not None:
@@ -87,6 +103,31 @@ def _list_profiles_flow() -> None:
     _safe(list_profiles, subscription=None, protocol=None)
 
 
+def _remove_profile_flow() -> None:
+    from v2rm.cli.profile import remove_profile
+
+    profile = _pick_profile("Remove profile #")
+    if profile is not None:
+        # yes=False/force=False: reuses remove_profile's own confirmation
+        # prompt and its refusal to drop the currently connected profile,
+        # same as running `v2rm profile remove` directly.
+        _safe(remove_profile, profile.id, yes=False, force=False)
+
+
+def _remove_subscription_flow() -> None:
+    from v2rm.cli.sub import remove_subscription
+
+    sub = _pick_subscription("Remove subscription #")
+    if sub is not None:
+        _safe(remove_subscription, sub.id, yes=False)
+
+
+def _update_one_subscription_flow() -> None:
+    sub = _pick_subscription("Update subscription #")
+    if sub is not None:
+        _safe(update_subscription, sub.id, all_subs=False, proxy=None, force=False)
+
+
 def run_menu() -> None:
     """A thin interactive front-end over the same commands available on the
     command line -- every action here calls the identical underlying
@@ -102,21 +143,24 @@ def run_menu() -> None:
     actions = {
         "1": ("Connect / switch profile", _connect_flow),
         "2": ("Disconnect", lambda: _safe(disconnect_command)),
-        "3": ("Add a link", _add_link_flow),
-        "4": ("Add a subscription", _add_subscription_flow),
-        "5": (
-            "Update all subscriptions",
-            lambda: _safe(update_subscription, None, all_subs=True, proxy=None, force=False),
-        ),
-        "6": ("List profiles", _list_profiles_flow),
-        "7": ("Test a profile", _test_flow),
-        "8": (
+        "3": ("Status", lambda: _safe(status_command)),
+        "4": ("List profiles", _list_profiles_flow),
+        "5": ("Add a link", _add_link_flow),
+        "6": ("Add a subscription", _add_subscription_flow),
+        "7": ("Remove a profile", _remove_profile_flow),
+        "8": ("Remove a subscription", _remove_subscription_flow),
+        "9": ("Test a profile", _test_flow),
+        "10": (
             "Test all profiles",
             lambda: _safe(
                 test_command, None, all_profiles=True, protocol=None, subscription=None, concurrency=4, timeout=10.0
             ),
         ),
-        "9": ("Status", lambda: _safe(status_command)),
+        "11": ("Update a subscription", _update_one_subscription_flow),
+        "12": (
+            "Update all subscriptions",
+            lambda: _safe(update_subscription, None, all_subs=True, proxy=None, force=False),
+        ),
     }
 
     try:
