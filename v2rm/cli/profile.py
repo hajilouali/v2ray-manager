@@ -216,3 +216,11 @@ def use_profile(ref: str = typer.Argument(..., help="Profile id or name.")) -> N
     state.active_profile_id = p.id
     state_store.save(state)
     console.print(f"[green]Active profile set to[/green] {p.name} [dim]({p.id})[/dim]")
+
+    from v2rm.process import supervisor
+
+    connected, _ = supervisor.is_connected()
+    if connected:
+        from v2rm.cli.connect import connect_command
+
+        connect_command(None)

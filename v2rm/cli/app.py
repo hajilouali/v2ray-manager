@@ -7,6 +7,7 @@ from rich.console import Console
 
 from v2rm import __version__
 from v2rm.cli.add import add_command
+from v2rm.cli.connect import connect_command, disconnect_command, status_command
 from v2rm.cli.profile import profile_app
 from v2rm.errors import V2rmError
 from v2rm.store import paths
@@ -21,6 +22,9 @@ app = typer.Typer(
     no_args_is_help=False,
 )
 app.command(name="add")(add_command)
+app.command(name="connect")(connect_command)
+app.command(name="disconnect")(disconnect_command)
+app.command(name="status")(status_command)
 app.add_typer(profile_app, name="profile")
 
 
