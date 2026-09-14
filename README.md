@@ -104,7 +104,7 @@ Prefer a menu over remembering flags? Just run `v2rm` with no arguments.
 | `v2rm core update <xray\|singbox>` | Update to the latest release |
 | `v2rm core use <xray\|singbox>` | Set the default engine |
 | `v2rm core remove <xray\|singbox> [--version V] [--all]` | Remove installed engine version(s) |
-| `v2rm port show` / `port set [--socks P] [--http P]` | View/change the local proxy ports |
+| `v2rm port show` / `port set [--socks P] [--http P] [--listen ADDR]` | View/change the local proxy ports and listen address |
 
 Every command has `--help`.
 
@@ -140,6 +140,44 @@ All under standard XDG locations (overridable with `V2RM_CONFIG_HOME`/`V2RM_DATA
 - `~/.local/share/v2rm/bin/` — installed engine binaries
 - `~/.local/state/v2rm/run/` — the generated runtime config, pidfile, engine log
 - `~/.cache/v2rm/assets/` — cached GeoIP/GeoSite data
+
+## Using v2rm from a Docker container
+
+By default v2rm's proxy is bound to `127.0.0.1`, which a container on the same host **can't** reach — a container's `127.0.0.1` is its own loopback, isolated from the host's. Two ways to fix that:
+
+**Option A — run the container with host networking** (simplest, no v2rm changes, but the container shares the host's entire network stack, so any existing `-p`/`--publish` port mappings on that container stop doing anything and container-name-based DNS to other containers stops working):
+
+```bash
+docker run --network host ...
+```
+
+**Option B — keep the container's own networking, and let v2rm listen on the Docker bridge address instead** (better if the container needs its own network namespace, e.g. it already talks to other containers by name):
+
+```bash
+v2rm port set --listen 172.17.0.1   # the default docker0 bridge gateway; confirm yours with:
+                                     #   docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}'
+```
+
+From inside the container, the proxy is then reachable at `http://172.17.0.1:10809` (or `socks5://172.17.0.1:10808`).
+
+**Either way, the proxy has no authentication of its own** — anything that can reach that address:port can tunnel through your connection. Binding to the bridge gateway specifically (rather than `0.0.0.0`) already keeps it unreachable from your public interface at the kernel level, but add a firewall rule too, as defense in depth:
+
+```bash
+# ufw (Debian/Ubuntu)
+sudo ufw default deny incoming      # safe to re-run if already set
+sudo ufw allow from 172.17.0.0/16 to any port 10808 proto tcp
+sudo ufw allow from 172.17.0.0/16 to any port 10809 proto tcp
+sudo ufw enable                     # if not already enabled
+
+# or iptables directly (remember these don't survive a reboot without
+# iptables-persistent / netfilter-persistent)
+sudo iptables -A INPUT -s 172.17.0.0/16 -p tcp --dport 10808 -j ACCEPT
+sudo iptables -A INPUT -s 172.17.0.0/16 -p tcp --dport 10809 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 10808 -j DROP
+sudo iptables -A INPUT -p tcp --dport 10809 -j DROP
+```
+
+Adjust `172.17.0.0/16` if `docker network inspect bridge` showed a different subnet. `v2rm doctor` and `v2rm status` both flag it when the listen address isn't `127.0.0.1`, as a reminder.
 
 ## FAQ
 

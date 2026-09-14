@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from v2rm.constants import GEOIP_RULESET_BASE, GEOSITE_RULESET_BASE
+from v2rm.constants import DEFAULT_LISTEN_ADDRESS, GEOIP_RULESET_BASE, GEOSITE_RULESET_BASE
 from v2rm.errors import UnsupportedProtocolError
 from v2rm.models.enums import Protocol, SecurityKind, TransportKind
 from v2rm.models.profile import Profile
@@ -21,7 +21,11 @@ SUPPORTED_PROTOCOLS = frozenset(
 
 
 def generate_config(
-    profile: Profile, route_plan: RoutePlan, socks_port: int, http_port: int
+    profile: Profile,
+    route_plan: RoutePlan,
+    socks_port: int,
+    http_port: int,
+    listen_address: str = DEFAULT_LISTEN_ADDRESS,
 ) -> dict[str, Any]:
     if profile.protocol not in SUPPORTED_PROTOCOLS:  # pragma: no cover - all Protocol values covered today
         raise UnsupportedProtocolError(f"sing-box does not support '{profile.protocol.value}' profiles.")
@@ -31,8 +35,8 @@ def generate_config(
     return {
         "log": {"level": "warn"},
         "inbounds": [
-            {"type": "socks", "tag": "socks-in", "listen": "127.0.0.1", "listen_port": socks_port},
-            {"type": "http", "tag": "http-in", "listen": "127.0.0.1", "listen_port": http_port},
+            {"type": "socks", "tag": "socks-in", "listen": listen_address, "listen_port": socks_port},
+            {"type": "http", "tag": "http-in", "listen": listen_address, "listen_port": http_port},
         ],
         "outbounds": [
             _outbound(profile),

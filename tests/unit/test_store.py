@@ -102,3 +102,24 @@ def test_app_state_defaults_and_persistence():
 
     reloaded = store.load()
     assert reloaded.active_profile_id == "abc"
+
+
+def test_app_state_listen_address_round_trip():
+    store = AppStateStore()
+    state = store.load()
+    assert state.listen_address == "127.0.0.1"
+
+    state.listen_address = "172.17.0.1"
+    store.save(state)
+
+    assert store.load().listen_address == "172.17.0.1"
+
+
+def test_app_state_from_dict_defaults_listen_address_when_absent():
+    # A state.json written before this field existed (e.g. an already-
+    # deployed install) has no "listen_address" key at all -- it must load
+    # cleanly rather than raise, defaulting to the safe loopback-only value.
+    from v2rm.models.state import AppState
+
+    state = AppState.from_dict({"active_profile_id": "abc", "socks_port": 10808, "http_port": 10809})
+    assert state.listen_address == "127.0.0.1"

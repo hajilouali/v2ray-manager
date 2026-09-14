@@ -61,3 +61,17 @@ def test_status_includes_meta_when_connected():
     assert info["connected"] is True
     assert info["profile_name"] == "Demo"
     assert info["engine"] == "xray"
+
+
+def test_probe_address_wildcard_falls_back_to_loopback():
+    # 0.0.0.0/:: aren't valid connect() targets even though the engine is
+    # also listening on loopback in that case -- probing must use 127.0.0.1.
+    assert supervisor._probe_address("0.0.0.0") == "127.0.0.1"
+    assert supervisor._probe_address("::") == "127.0.0.1"
+
+
+def test_probe_address_specific_address_probed_directly():
+    # A specific non-wildcard address may not include loopback at all, so
+    # it must be probed as-is, not silently swapped for 127.0.0.1.
+    assert supervisor._probe_address("172.17.0.1") == "172.17.0.1"
+    assert supervisor._probe_address("127.0.0.1") == "127.0.0.1"

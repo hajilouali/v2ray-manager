@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from v2rm.constants import DEFAULT_LISTEN_ADDRESS
 from v2rm.errors import UnsupportedProtocolError
 from v2rm.models.enums import Protocol, SecurityKind, TransportKind
 from v2rm.models.profile import Profile, TlsSettings
@@ -13,7 +14,11 @@ SUPPORTED_PROTOCOLS = frozenset(
 
 
 def generate_config(
-    profile: Profile, route_plan: RoutePlan, socks_port: int, http_port: int
+    profile: Profile,
+    route_plan: RoutePlan,
+    socks_port: int,
+    http_port: int,
+    listen_address: str = DEFAULT_LISTEN_ADDRESS,
 ) -> dict[str, Any]:
     if profile.protocol not in SUPPORTED_PROTOCOLS:
         raise UnsupportedProtocolError(
@@ -22,7 +27,7 @@ def generate_config(
 
     return {
         "log": {"loglevel": "warning"},
-        "inbounds": _inbounds(socks_port, http_port),
+        "inbounds": _inbounds(socks_port, http_port, listen_address),
         "outbounds": [
             _outbound(profile),
             {"tag": "direct", "protocol": "freedom", "settings": {}},
@@ -35,12 +40,12 @@ def generate_config(
     }
 
 
-def _inbounds(socks_port: int, http_port: int) -> list[dict[str, Any]]:
+def _inbounds(socks_port: int, http_port: int, listen_address: str) -> list[dict[str, Any]]:
     sniffing = {"enabled": True, "destOverride": ["http", "tls"]}
     return [
         {
             "tag": "socks-in",
-            "listen": "127.0.0.1",
+            "listen": listen_address,
             "port": socks_port,
             "protocol": "socks",
             "settings": {"auth": "noauth", "udp": True},
@@ -48,7 +53,7 @@ def _inbounds(socks_port: int, http_port: int) -> list[dict[str, Any]]:
         },
         {
             "tag": "http-in",
-            "listen": "127.0.0.1",
+            "listen": listen_address,
             "port": http_port,
             "protocol": "http",
             "settings": {},

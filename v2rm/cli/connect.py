@@ -40,12 +40,19 @@ def connect_command(
 
     route_plan = _resolve_route_plan(state.route_preset)
 
-    supervisor.connect(profile, state.active_engine, route_plan, state.socks_port, state.http_port)
+    supervisor.connect(
+        profile,
+        state.active_engine,
+        route_plan,
+        state.socks_port,
+        state.http_port,
+        listen_address=state.listen_address,
+    )
     state_store.save(state)
 
     console.print(
         f"[green]Connected[/green] via {state.active_engine.value} -> {profile.name} "
-        f"[dim](socks 127.0.0.1:{state.socks_port}, http 127.0.0.1:{state.http_port})[/dim]"
+        f"[dim](socks {state.listen_address}:{state.socks_port}, http {state.listen_address}:{state.http_port})[/dim]"
     )
 
 
@@ -62,12 +69,18 @@ def status_command() -> None:
         console.print("[yellow]Not connected.[/yellow]")
         return
 
+    listen = info.get("listen_address", "127.0.0.1")
     console.print("[bold green]Connected[/bold green]")
     console.print(f"  profile   {info.get('profile_name', '?')}")
     console.print(f"  engine    {info.get('engine', '?')}")
     console.print(f"  pid       {info.get('pid')}")
-    console.print(f"  socks     127.0.0.1:{info.get('socks_port')}")
-    console.print(f"  http      127.0.0.1:{info.get('http_port')}")
+    console.print(f"  socks     {listen}:{info.get('socks_port')}")
+    console.print(f"  http      {listen}:{info.get('http_port')}")
+    if listen != "127.0.0.1":
+        console.print(
+            "  [yellow]note:[/yellow] listening beyond localhost -- make sure a firewall "
+            "restricts who can reach these ports"
+        )
 
 
 def _resolve_route_plan(preset: RoutePreset) -> RoutePlan:

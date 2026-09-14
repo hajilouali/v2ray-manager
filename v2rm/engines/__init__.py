@@ -2,19 +2,25 @@ from __future__ import annotations
 
 from typing import Any
 
+from v2rm.constants import DEFAULT_LISTEN_ADDRESS
 from v2rm.models.enums import EngineKind, Protocol
 from v2rm.models.profile import Profile
 from v2rm.routing.model import RoutePlan
 
 
 def generate_config(
-    engine: EngineKind, profile: Profile, route_plan: RoutePlan, socks_port: int, http_port: int
+    engine: EngineKind,
+    profile: Profile,
+    route_plan: RoutePlan,
+    socks_port: int,
+    http_port: int,
+    listen_address: str = DEFAULT_LISTEN_ADDRESS,
 ) -> dict[str, Any]:
     if engine == EngineKind.XRAY:
         from v2rm.engines.xray.generate import generate_config as gen
     else:
         from v2rm.engines.singbox.generate import generate_config as gen
-    return gen(profile, route_plan, socks_port, http_port)
+    return gen(profile, route_plan, socks_port, http_port, listen_address=listen_address)
 
 
 def supported_protocols(engine: EngineKind) -> frozenset[Protocol]:

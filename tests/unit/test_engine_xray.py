@@ -26,11 +26,17 @@ def make_vless_reality() -> Profile:
     )
 
 
-def test_xray_inbounds_bind_localhost_only():
+def test_xray_inbounds_bind_localhost_only_by_default():
     config = generate_config(make_vless_reality(), GLOBAL, 10808, 10809)
     for inbound in config["inbounds"]:
         assert inbound["listen"] == "127.0.0.1"
     assert {i["port"] for i in config["inbounds"]} == {10808, 10809}
+
+
+def test_xray_inbounds_respect_custom_listen_address():
+    config = generate_config(make_vless_reality(), GLOBAL, 10808, 10809, listen_address="172.17.0.1")
+    for inbound in config["inbounds"]:
+        assert inbound["listen"] == "172.17.0.1"
 
 
 def test_xray_vless_reality_outbound_shape():

@@ -7,12 +7,19 @@ from v2rm.models.profile import Profile, TlsSettings
 from v2rm.routing.presets import BYPASS_IR, GLOBAL
 
 
-def test_singbox_inbounds_bind_localhost_only():
+def test_singbox_inbounds_bind_localhost_only_by_default():
     p = Profile(name="T", protocol=Protocol.TROJAN, server="t.example.com", port=443, password="pw")
     config = generate_config(p, GLOBAL, 10808, 10809)
     for inbound in config["inbounds"]:
         assert inbound["listen"] == "127.0.0.1"
     assert {i["type"] for i in config["inbounds"]} == {"socks", "http"}
+
+
+def test_singbox_inbounds_respect_custom_listen_address():
+    p = Profile(name="T", protocol=Protocol.TROJAN, server="t.example.com", port=443, password="pw")
+    config = generate_config(p, GLOBAL, 10808, 10809, listen_address="0.0.0.0")
+    for inbound in config["inbounds"]:
+        assert inbound["listen"] == "0.0.0.0"
 
 
 def test_singbox_hysteria2_outbound():

@@ -37,6 +37,12 @@ def doctor_command() -> None:
 
     state = AppStateStore().load()
     checks.append((True, f"SOCKS port {state.socks_port}, HTTP port {state.http_port}"))
+    if state.listen_address == "127.0.0.1":
+        checks.append((True, "Listening on 127.0.0.1 (localhost only)"))
+    else:
+        checks.append(
+            (False, f"Listening on {state.listen_address} (not just localhost) -- confirm a firewall restricts who can reach it")
+        )
     checks.append((True, f"Route preset: {state.route_preset.value}"))
 
     editor = os.environ.get("EDITOR")

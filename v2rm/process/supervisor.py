@@ -96,12 +96,23 @@ def status() -> dict[str, Any]:
     return {"connected": connected, "pid": pid, **meta}
 
 
-def _port_open(port: int, timeout: float = 0.3) -> bool:
+def _port_open(port: int, host: str = "127.0.0.1", timeout: float = 0.3) -> bool:
     try:
-        with socket.create_connection(("127.0.0.1", port), timeout=timeout):
+        with socket.create_connection((host, port), timeout=timeout):
             return True
     except OSError:
         return False
+
+
+def _probe_address(listen_address: str) -> str:
+    """The address to actually connect() to when checking whether the
+    engine has started listening. 0.0.0.0/:: aren't valid connect()
+    targets even though the engine *is* listening on loopback too in that
+    case, so probe 127.0.0.1 instead; a specific non-wildcard address is
+    probed directly, since it may not include loopback at all."""
+    if listen_address in ("0.0.0.0", "::", ""):
+        return "127.0.0.1"
+    return listen_address
 
 
 def _tail_log(n: int = 20) -> str:
@@ -118,6 +129,7 @@ def connect(
     route_plan: RoutePlan,
     socks_port: int,
     http_port: int,
+    listen_address: str = "127.0.0.1",
 ) -> None:
     connected, _ = is_connected()
     if connected:
@@ -127,7 +139,7 @@ def connect(
 
     from v2rm.engines import generate_config
 
-    config = generate_config(engine, profile, route_plan, socks_port, http_port)
+    config = generate_config(engine, profile, route_plan, socks_port, http_port, listen_address=listen_address)
 
     paths.run_dir().mkdir(parents=True, exist_ok=True)
     paths.logs_dir().mkdir(parents=True, exist_ok=True)
@@ -158,6 +170,7 @@ def connect(
                 "engine": engine.value,
                 "profile_id": profile.id,
                 "profile_name": profile.name,
+                "listen_address": listen_address,
                 "socks_port": socks_port,
                 "http_port": http_port,
                 "started_at": time.time(),
@@ -166,6 +179,7 @@ def connect(
         encoding="utf-8",
     )
 
+    probe_host = _probe_address(listen_address)
     deadline = time.monotonic() + CONNECT_POLL_TIMEOUT
     while time.monotonic() < deadline:
         if proc.poll() is not None:
@@ -173,7 +187,7 @@ def connect(
             raise ConnectFailedError(
                 f"{engine.value} exited immediately (code {proc.returncode}). Last log lines:\n{_tail_log()}"
             )
-        if _port_open(socks_port):
+        if _port_open(socks_port, host=probe_host):
             return
         time.sleep(CONNECT_POLL_INTERVAL)
 
