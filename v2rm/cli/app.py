@@ -10,6 +10,7 @@ from v2rm.cli.add import add_command
 from v2rm.cli.connect import connect_command, disconnect_command, status_command
 from v2rm.cli.core import core_app
 from v2rm.cli.profile import profile_app
+from v2rm.cli.sub import sub_app
 from v2rm.errors import V2rmError
 from v2rm.store import paths
 
@@ -28,6 +29,7 @@ app.command(name="disconnect")(disconnect_command)
 app.command(name="status")(status_command)
 app.add_typer(profile_app, name="profile")
 app.add_typer(core_app, name="core")
+app.add_typer(sub_app, name="sub")
 
 
 @app.callback(invoke_without_command=True)
