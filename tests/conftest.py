@@ -11,4 +11,7 @@ def _isolated_v2rm_dirs(tmp_path, monkeypatch):
     monkeypatch.setenv("V2RM_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setenv("V2RM_STATE_HOME", str(tmp_path / "state"))
     monkeypatch.setenv("V2RM_CACHE_HOME", str(tmp_path / "cache"))
+    # rich sizes tables to the terminal; pin it wide so output assertions
+    # don't depend on whatever width the test runner happens to have.
+    monkeypatch.setenv("COLUMNS", "200")
     yield

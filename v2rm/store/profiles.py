@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from v2rm.errors import AmbiguousReferenceError, ProfileNotFoundError
-from v2rm.models.profile import Profile
+from v2rm.models.profile import SCHEMA_VERSION, Profile
 from v2rm.parsers.migrate import upgrade_profile
 from v2rm.store import paths
 from v2rm.store.json_store import atomic_write_json, load_json
@@ -93,6 +93,23 @@ class ProfileStore:
                     self._save_raw(items)
                     return
         raise ProfileNotFoundError(f"No profile found with id '{profile.id}'")
+
+    def persist_upgrades(self) -> int:
+        """Write profiles saved by an older version back at the current
+        schema. Loading upgrades them in memory only (a read shouldn't write);
+        commands that already write -- `sub update` -- call this so the
+        upgrade sticks instead of being re-derived on every load. Returns how
+        many profiles were rewritten."""
+        with store_lock(self._lock_path):
+            items = self._load_raw()
+            changed = 0
+            for i, item in enumerate(items):
+                if int(item.get("schema", 1)) < SCHEMA_VERSION:
+                    items[i] = _to_profile(item).to_dict()
+                    changed += 1
+            if changed:
+                self._save_raw(items)
+        return changed
 
     def update_many(self, profiles: Iterable[Profile]) -> int:
         """Replace several stored profiles in a single read-modify-write.

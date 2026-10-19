@@ -125,7 +125,7 @@ def _remove_subscription_flow() -> None:
 def _update_one_subscription_flow() -> None:
     sub = _pick_subscription("Update subscription #")
     if sub is not None:
-        _safe(update_subscription, sub.id, all_subs=False, proxy=None, force=False)
+        _safe(update_subscription, sub.id, all_subs=False, proxy=None, force=False, respect_interval=False)
 
 
 def run_menu() -> None:
@@ -159,7 +159,9 @@ def run_menu() -> None:
         "11": ("Update a subscription", _update_one_subscription_flow),
         "12": (
             "Update all subscriptions",
-            lambda: _safe(update_subscription, None, all_subs=True, proxy=None, force=False),
+            lambda: _safe(
+                update_subscription, None, all_subs=True, proxy=None, force=False, respect_interval=False
+            ),
         ),
     }
 
