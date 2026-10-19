@@ -7,6 +7,7 @@ Xray accepts it.
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 
@@ -26,6 +27,10 @@ pytestmark = pytest.mark.integration
 
 _GEO_PROBLEM = re.compile(r"geosite|geoip|geodata", re.IGNORECASE)
 LISTEN_ADDRESSES = ["127.0.0.1", "0.0.0.0", "172.18.0.1"]
+
+# Xray decodes a REALITY client key as unpadded base64url and insists on exactly 32 bytes
+# (its error always says `invalid "password"`, even for a key given as `publicKey`).
+REALITY_PUBLIC_KEY = base64.urlsafe_b64encode(bytes(range(32))).rstrip(b"=").decode()
 
 
 def check(xray_binary, assets_dir, tmp_path, config: dict) -> None:
@@ -65,7 +70,7 @@ def test_the_harness_rejects_a_broken_config(xray_binary, assets_dir, tmp_path):
     [
         "trojan://pw@t.example.com:443?security=tls&sni=t.example.com#trojan",
         "vless://11111111-2222-3333-4444-555555555555@v.example.com:443?security=tls&sni=v.example.com&type=ws&path=%2Fws&host=v.example.com#vless-ws",
-        "vless://11111111-2222-3333-4444-555555555555@r.example.com:443?security=reality&sni=hide.example.com&pbk=cmV2ZXJzZS1zdGFuZGlu-bm90LWEtcmVhbC1rZXktMTIzNDU2&sid=ab&fp=chrome&flow=xtls-rprx-vision#reality",
+        f"vless://11111111-2222-3333-4444-555555555555@r.example.com:443?security=reality&sni=hide.example.com&pbk={REALITY_PUBLIC_KEY}&sid=ab&fp=chrome&flow=xtls-rprx-vision#reality",
         "ss://YWVzLTEyOC1nY206cGFzc3dvcmQ@s.example.com:8388#ss",
     ],
     ids=["trojan", "vless-ws", "vless-reality", "shadowsocks"],

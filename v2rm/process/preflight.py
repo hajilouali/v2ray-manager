@@ -24,6 +24,9 @@ _TOO_OLD_RE = re.compile(
     re.IGNORECASE,
 )
 _REMOVED_RE = re.compile(r"removed|no longer supported", re.IGNORECASE)
+# Xray reports a bad REALITY client key as `invalid "password"` (it renamed the field but
+# kept `publicKey` as an alias), which means nothing to someone who only has `pbk=`.
+_REALITY_KEY_RE = re.compile(r"reality.*invalid \"password\"|invalid \"password\".*reality", re.IGNORECASE | re.DOTALL)
 
 
 def looks_too_old(output: str) -> bool:
@@ -47,6 +50,11 @@ def explain_xray_failure(output: str) -> str:
         hints.append(
             "This Xray-core release has removed a feature the config uses; the config needs "
             "updating (or an older core: `v2rm core install xray --version vX.Y.Z`)."
+        )
+    if _REALITY_KEY_RE.search(output):
+        hints.append(
+            "The REALITY public key (`pbk` in a link, `publicKey` in a config) must be an unpadded "
+            "base64url string of exactly 32 bytes (43 characters). Check it was copied completely."
         )
     message = f"Xray rejected the generated config:\n{output}"
     if hints:

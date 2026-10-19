@@ -85,6 +85,7 @@ def needs_preflight(profile: Profile) -> bool:
         or bool(profile.tls.ech_config_list)
         or bool(profile.encryption)
         or profile.transport.network == TransportKind.XHTTP
+        or profile.tls.security == SecurityKind.REALITY  # Xray's REALITY key errors are cryptic
     )
 
 
