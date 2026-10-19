@@ -166,6 +166,9 @@ def _prepare_config(
         notes=notes,
     )
     config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    # It holds the server's credentials and the proxy login: owner-only.
+    with contextlib.suppress(OSError):
+        os.chmod(config_path, 0o600)
     if needs_preflight(engine, profile):
         run_config_test(binary, config_path, paths.geo_assets_dir())
     return notes

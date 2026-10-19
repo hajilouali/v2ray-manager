@@ -33,7 +33,7 @@ def list_engines() -> None:
     for engine in _ENGINES:
         versions = installer.installed_versions(engine)
         current = installer.current_version(engine)
-        active = state.active_engine is not None and state.active_engine.value == engine
+        active = (state.active_engine or EngineKind.XRAY).value == engine  # Xray unless `core use` said otherwise
         table.add_row(
             engine,
             ", ".join(versions) if versions else "[dim]none[/dim]",

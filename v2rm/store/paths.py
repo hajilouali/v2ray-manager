@@ -43,6 +43,10 @@ def state_file() -> Path:
     return config_dir() / "state.json"
 
 
+def auth_file() -> Path:
+    return config_dir() / "auth.json"
+
+
 def routes_dir() -> Path:
     return config_dir() / "routes"
 

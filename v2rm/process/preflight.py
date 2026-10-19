@@ -25,6 +25,11 @@ _TOO_OLD_RE = re.compile(
 _REMOVED_RE = re.compile(r"removed|no longer supported", re.IGNORECASE)
 
 
+def looks_too_old(output: str) -> bool:
+    """Whether Xray's error output reads like "this core doesn't know that"."""
+    return bool(_TOO_OLD_RE.search(output))
+
+
 def explain_xray_failure(output: str) -> str:
     """Xray's error output verbatim, plus a hint for the recurring causes."""
     output = output.strip() or "(no output)"
@@ -35,7 +40,7 @@ def explain_xray_failure(output: str) -> str:
             "Run `v2rm route update-data --force` to refresh v2rm's geo data; if the tag still "
             "isn't found, this config expects different geo data than the default."
         )
-    if _TOO_OLD_RE.search(output):
+    if looks_too_old(output):
         hints.append("Your Xray-core looks too old for this config. Run `v2rm core update xray`.")
     if _REMOVED_RE.search(output):
         hints.append(

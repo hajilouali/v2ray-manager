@@ -61,7 +61,7 @@ def test_run_connectivity_test_falls_back_to_second_url(monkeypatch):
                 raise requests.ConnectionError("nope")
             return FakeStreamResponse([b"ok-data"])
 
-    monkeypatch.setattr("v2rm.net.speedtest.build_proxy_session", lambda port: FlakySession())
+    monkeypatch.setattr("v2rm.net.speedtest.build_proxy_session", lambda port, auth=None: FlakySession())
     result = run_connectivity_test(10808, urls=["http://bad", "http://good"], timeout=5)
 
     assert result.ok is True
@@ -74,8 +74,27 @@ def test_run_connectivity_test_all_urls_fail(monkeypatch):
         def get(self, url, stream=True, timeout=None):
             raise requests.ConnectionError("down")
 
-    monkeypatch.setattr("v2rm.net.speedtest.build_proxy_session", lambda port: AlwaysFailSession())
+    monkeypatch.setattr("v2rm.net.speedtest.build_proxy_session", lambda port, auth=None: AlwaysFailSession())
     result = run_connectivity_test(10808, urls=["http://a", "http://b"], timeout=5)
 
     assert result.ok is False
     assert result.error
+
+
+def test_run_connectivity_test_passes_the_proxy_login_to_the_session(monkeypatch):
+    from v2rm.models.auth import ProxyAuth
+
+    seen = {}
+
+    class OkSession:
+        def get(self, url, stream=True, timeout=None):
+            return FakeStreamResponse([b"ok-data"])
+
+    def build(port, auth=None):
+        seen["port"], seen["auth"] = port, auth
+        return OkSession()
+
+    monkeypatch.setattr("v2rm.net.speedtest.build_proxy_session", build)
+    auth = ProxyAuth("demo", "demo-pass")
+    assert run_connectivity_test(10808, urls=["http://good"], timeout=5, auth=auth).ok is True
+    assert seen == {"port": 10808, "auth": auth}

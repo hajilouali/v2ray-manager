@@ -146,3 +146,22 @@ def build_raw_runtime_config(
     config = copy.deepcopy(profile.raw_config or {})
     rewrite_inbounds(config, socks_port, http_port, listen_address, auth, notes if notes is not None else [])
     return config
+
+
+# Outbounds that stay on this machine's own connection. Newer Xray names the first
+# two "direct" and "block"; real "serverless" configs use those names.
+_LOCAL_ONLY_OUTBOUNDS = frozenset({"freedom", "direct", "blackhole", "block", "dns", "loopback"})
+
+
+def is_serverless(config: dict[str, Any]) -> bool:
+    """True for a config none of whose outbounds goes to a remote proxy server
+    (only freedom/direct, blackhole/block, dns, loopback) -- the "serverless" kind that
+    evades DPI on a *direct* connection instead of tunnelling anywhere."""
+    outbounds = [o for o in config.get("outbounds") or [] if isinstance(o, dict)]
+    if not outbounds:
+        return False
+    return all(str(o.get("protocol", "")).lower() in _LOCAL_ONLY_OUTBOUNDS for o in outbounds)
+
+
+def profile_is_serverless(profile: Profile) -> bool:
+    return profile.is_raw and is_serverless(profile.raw_config or {})

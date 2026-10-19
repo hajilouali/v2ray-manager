@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from v2rm.constants import TEST_CHUNK_SIZE, TEST_DOWNLOAD_BYTES, TEST_TIMEOUT_SECONDS, TEST_URLS
 from v2rm.errors import V2rmError
+from v2rm.models.auth import ProxyAuth
 from v2rm.net.proxy_client import build_proxy_session
 
 
@@ -22,12 +23,14 @@ def run_connectivity_test(
     socks_port: int,
     urls: list[str] | None = None,
     timeout: float = TEST_TIMEOUT_SECONDS,
+    auth: ProxyAuth | None = None,
 ) -> TestResult:
     """Connect through the local SOCKS proxy and actually download a small
     file, measuring time-to-first-byte (latency) and transfer speed. Tries
     each candidate URL in turn so one unreachable test endpoint doesn't
-    make an otherwise-working profile look broken."""
-    session = build_proxy_session(socks_port)
+    make an otherwise-working profile look broken. `auth` is the proxy's
+    login, if it has one."""
+    session = build_proxy_session(socks_port, auth)
     candidates = urls or TEST_URLS
 
     last_error = ""
