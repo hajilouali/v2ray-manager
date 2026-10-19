@@ -27,9 +27,12 @@ XRAY_GEOSITE_DAT_URL = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases
 
 DEFAULT_USER_AGENT = "v2rm/0.1.0"
 
+# The test reads only the first TEST_DOWNLOAD_BYTES of whichever URL answers, so a larger
+# file is fine. (CacheFly serves 1mb/10mb/100mb.test; the 2mb.test this used to point at
+# returns 404, which silently disabled the fallback.)
 TEST_URLS = [
     "https://speed.cloudflare.com/__down?bytes=2000000",
-    "https://cachefly.cachefly.net/2mb.test",
+    "https://cachefly.cachefly.net/10mb.test",
 ]
 TEST_DOWNLOAD_BYTES = 2_000_000
 TEST_TIMEOUT_SECONDS = 10.0

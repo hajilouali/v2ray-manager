@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from v2rm.constants import TEST_CHUNK_SIZE, TEST_DOWNLOAD_BYTES, TEST_TIMEOUT_SECONDS, TEST_URLS
 from v2rm.errors import V2rmError
@@ -33,15 +35,31 @@ def run_connectivity_test(
     session = build_proxy_session(socks_port, auth)
     candidates = urls or TEST_URLS
 
-    last_error = ""
+    errors: list[str] = []
     for url in candidates:
         try:
             return _download_and_measure(session, url, timeout)
         except Exception as exc:  # noqa: BLE001 - try the next candidate URL instead of failing outright
-            last_error = str(exc)
+            errors.append(f"{urlsplit(url).hostname or url}: {short_error(exc, timeout)}")
             continue
 
-    return TestResult(ok=False, error=last_error or "All test URLs failed")
+    # Every endpoint's reason, not just the last: the first one is usually the telling one.
+    return TestResult(ok=False, error="; ".join(errors) or "All test URLs failed")
+
+
+_POOL_PREFIX = re.compile(r"^\w*ConnectionPool\([^)]*\):\s*")
+_CAUSED_BY = re.compile(r"Caused by (.*)\)\s*$", re.DOTALL)
+
+
+def short_error(exc: Exception, timeout: float) -> str:
+    """A requests/urllib3 exception as one short readable phrase."""
+    text = _POOL_PREFIX.sub("", str(exc)).strip()
+    if "timed out" in text.lower():
+        return f"timed out (no data within {timeout:g}s)"
+    cause = _CAUSED_BY.search(text)
+    if cause:
+        text = cause.group(1).strip()
+    return " ".join(text.split())[:140]
 
 
 def _download_and_measure(session, url: str, timeout: float) -> TestResult:
