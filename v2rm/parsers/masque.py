@@ -142,3 +142,40 @@ def to_link(profile: Profile) -> str:
     if profile.extra.get("warp"):
         params["warp"] = links.compact_json(profile.extra["warp"])
     return links.build_link(SCHEME, userinfo, profile.server, profile.port, params, profile.name)
+
+
+def build_profile(
+    *,
+    server: str,
+    port: int,
+    sni: str,
+    alpn: list[str] | None = None,
+    user: str = "",
+    password: str = "",
+    path: str = "",
+    host: str = "",
+    headers: dict[str, str] | None = None,
+    fingerprint: str = "",
+    name: str = "",
+) -> Profile:
+    """A MASQUE profile from individual fields (`v2rm add masque ...`, the menu)
+    -- the same shape `parse()` produces from a link, validated the same way,
+    with its `masque://` link recorded so `profile show --link` round-trips."""
+    profile = Profile(
+        name=name or f"{server}:{port}",
+        protocol=Protocol.MASQUE,
+        server=server,
+        port=port,
+        password=password,
+        transport=TransportSettings(path=path, host=host, headers=dict(headers or {})),
+        tls=TlsSettings(
+            security=SecurityKind.TLS,
+            sni=sni,
+            alpn=list(alpn or DEFAULT_ALPN),
+            fingerprint=fingerprint,
+        ),
+        extra={"user": user} if user else {},
+    )
+    validate_masque(profile)
+    profile.raw_link = to_link(profile)
+    return profile

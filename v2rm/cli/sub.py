@@ -5,6 +5,7 @@ from urllib.parse import unquote, urlsplit, urlunsplit
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from v2rm.errors import V2rmError
@@ -55,7 +56,7 @@ def _parse_body(
 def _print_errors(errors: list[tuple[str, str]]) -> None:
     for line, message in errors[:_MAX_ERRORS_SHOWN]:
         shown = line if len(line) <= 60 else line[:57] + "..."
-        console.print(f"[red]x[/red] {shown} [dim]-> {message}[/dim]")
+        console.print(f"[red]x[/red] {escape(shown)} [dim]-> {escape(message)}[/dim]")
     if len(errors) > _MAX_ERRORS_SHOWN:
         console.print(f"[dim]... and {len(errors) - _MAX_ERRORS_SHOWN} more entries that failed to parse[/dim]")
 
@@ -128,7 +129,7 @@ def add_subscription(
     ProfileStore().add_many(profiles)
 
     console.print(
-        f"[green]Added subscription[/green] {sub.name} [dim]({sub.id}, {fmt.value})[/dim] "
+        f"[green]Added subscription[/green] {escape(sub.name)} [dim]({sub.id}, {fmt.value})[/dim] "
         f"-- {len(profiles)} profile(s)"
     )
     _print_errors(errors)
@@ -167,19 +168,19 @@ def update_subscription(
     for sub in targets:
         if all_subs and respect_interval and not force and _refreshed_recently(sub):
             console.print(
-                f"[bold]{sub.name}[/bold]: [dim]skipped -- refreshed less than "
+                f"[bold]{escape(sub.name)}[/bold]: [dim]skipped -- refreshed less than "
                 f"{sub.update_interval_hours:g}h ago (the provider's own interval); use --force to refresh anyway[/dim]"
             )
             continue
 
-        console.print(f"Updating [bold]{sub.name}[/bold]...")
+        console.print(f"Updating [bold]{escape(sub.name)}[/bold]...")
         try:
             text = fetch_subscription_body(sub.url, user_agent=sub.user_agent, proxy=proxy)
             fetched, errors, fmt, meta = _parse_body(text)
         except Exception as exc:  # noqa: BLE001 - one subscription's failure must not abort the rest of --all
             sub.last_status = f"error: {exc}"
             sub_store.update(sub)
-            console.print(f"  [red]Failed:[/red] {exc}")
+            console.print(f"  [red]Failed:[/red] {escape(str(exc))}")
             continue
 
         existing = profile_store.list_by_subscription(sub.id)
@@ -244,7 +245,7 @@ def remove_subscription(
 
     profile_store.remove_many(p.id for p in members)
     sub_store.remove(sub.id)
-    console.print(f"[green]Removed[/green] {sub.name} and {len(members)} profile(s)")
+    console.print(f"[green]Removed[/green] {escape(sub.name)} and {len(members)} profile(s)")
 
 
 @sub_app.command("list")
@@ -267,12 +268,12 @@ def list_subscriptions() -> None:
         count = len(profile_store.list_by_subscription(sub.id))
         table.add_row(
             sub.id,
-            sub.name,
+            escape(sub.name),
             sub.format_hint.value if sub.format_hint else "?",
             str(count),
             f"{sub.update_interval_hours:g}h" if sub.update_interval_hours else "[dim]-[/dim]",
             _short_timestamp(sub.last_updated),
-            sub.last_status,
+            escape(sub.last_status),
         )
 
     console.print(table)
@@ -288,18 +289,18 @@ def show_subscription(ref: str = typer.Argument(..., help="Subscription id or na
     sub = sub_store.resolve(ref)
     members = profile_store.list_by_subscription(sub.id)
 
-    console.print(f"[bold]{sub.name}[/bold] [dim]({sub.id})[/dim]")
-    console.print(f"  url             {sub.url}")
+    console.print(f"[bold]{escape(sub.name)}[/bold] [dim]({sub.id})[/dim]")
+    console.print(f"  url             {escape(sub.url)}")
     console.print(f"  format          {sub.format_hint.value if sub.format_hint else '?'}")
     interval = f"{sub.update_interval_hours:g}h (provider's refresh hint)" if sub.update_interval_hours else "-"
     console.print(f"  update interval {interval}")
     console.print(f"  last updated    {sub.last_updated or 'never'}")
-    console.print(f"  status          {sub.last_status}")
+    console.print(f"  status          {escape(sub.last_status)}")
     console.print(f"  profiles        {len(members)}")
     for p in members[:_MAX_MEMBERS_SHOWN]:
-        console.print(f"    - {p.name} [dim]({p.type_label}, {p.server_display})[/dim]")
+        console.print(f"    - {escape(p.name)} [dim]({p.type_label}, {escape(p.server_display)})[/dim]")
     if len(members) > _MAX_MEMBERS_SHOWN:
         console.print(
             f"    [dim]... and {len(members) - _MAX_MEMBERS_SHOWN} more "
-            f"(`v2rm profile list --subscription {sub.name}`)[/dim]"
+            f"(`v2rm profile list --subscription {escape(sub.name)}`)[/dim]"
         )

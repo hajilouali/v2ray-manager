@@ -11,10 +11,23 @@ from v2rm.routing.custom import load_custom_route_plan, scaffold_if_missing
 from v2rm.routing.model import RoutePlan
 from v2rm.routing.presets import get_builtin
 from v2rm.store import paths
+from v2rm.store.profiles import ProfileStore
 from v2rm.store.state import AppStateStore
 
 console = Console()
 route_app = typer.Typer(help="Manage routing rules (what bypasses the proxy).")
+
+
+RAW_PRESET_NOTE = (
+    "Note: the active profile is a raw Xray config. It uses its own routing rules, "
+    "so route presets are not applied to raw configs."
+)
+
+
+def _active_profile_is_raw() -> bool:
+    active_id = AppStateStore().load().active_profile_id
+    profile = ProfileStore().get(active_id) if active_id else None
+    return profile is not None and profile.is_raw
 
 
 def _resolve_plan(preset: RoutePreset) -> RoutePlan:
@@ -34,6 +47,8 @@ def show_route(
     plan = _resolve_plan(target)
 
     console.print(f"[bold]{target.value}[/bold]")
+    if _active_profile_is_raw():
+        console.print(f"[yellow]{RAW_PRESET_NOTE}[/yellow]")
     if not plan.rules:
         console.print("  [dim](no bypass rules -- everything goes through the proxy)[/dim]")
         return
@@ -64,6 +79,8 @@ def set_route(preset: RoutePreset = typer.Argument(..., help="global | bypass-ir
     state.route_preset = preset
     state_store.save(state)
     console.print(f"[green]Route preset set to[/green] {preset.value}")
+    if _active_profile_is_raw():
+        console.print(f"[yellow]{RAW_PRESET_NOTE}[/yellow]")
 
     from v2rm.process import supervisor
 

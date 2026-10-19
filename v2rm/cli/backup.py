@@ -50,6 +50,11 @@ def export_command(
     console.print(
         f"[green]Exported[/green] {len(profiles)} profile(s), {len(subscriptions)} subscription(s) -> {file}"
     )
+    if paths.auth_file().exists():
+        console.print(
+            "[dim]The proxy login (`v2rm port set --auth`) is a secret and is not included; "
+            "set it again after importing.[/dim]"
+        )
 
 
 def import_command(

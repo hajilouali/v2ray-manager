@@ -4,9 +4,10 @@ import sys
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from v2rm import __version__
-from v2rm.cli.add import add_command
+from v2rm.cli.add import add_app
 from v2rm.cli.backup import export_command, import_command
 from v2rm.cli.connect import connect_command, disconnect_command, status_command
 from v2rm.cli.core import core_app
@@ -30,7 +31,7 @@ app = typer.Typer(
     add_completion=True,
     no_args_is_help=False,
 )
-app.command(name="add")(add_command)
+app.add_typer(add_app, name="add")
 app.command(name="connect")(connect_command)
 app.command(name="disconnect")(disconnect_command)
 app.command(name="status")(status_command)
@@ -79,7 +80,7 @@ def main() -> None:
     except V2rmError as exc:
         if verbose:
             raise
-        err_console.print(f"[bold red]Error:[/bold red] {exc}")
+        err_console.print(f"[bold red]Error:[/bold red] {escape(str(exc))}")
         raise SystemExit(1) from None
 
 

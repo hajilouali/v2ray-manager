@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.prompt import IntPrompt, Prompt
 
 from v2rm.cli.connect import connect_command, disconnect_command, status_command
@@ -28,7 +29,7 @@ def _safe(fn, *args, **kwargs) -> None:
     try:
         fn(*args, **kwargs)
     except V2rmError as exc:
-        console.print(f"[bold red]Error:[/bold red] {exc}")
+        console.print(f"[bold red]Error:[/bold red] {escape(str(exc))}")
     except typer.Exit:
         pass
 
@@ -36,7 +37,9 @@ def _safe(fn, *args, **kwargs) -> None:
 def _print_status_line() -> None:
     info = supervisor.status()
     if info.get("connected"):
-        console.print(f"[bold green]Connected[/bold green] via {info.get('engine')} -> {info.get('profile_name')}")
+        console.print(
+            f"[bold green]Connected[/bold green] via {info.get('engine')} -> {escape(str(info.get('profile_name')))}"
+        )
     else:
         console.print("[dim]Not connected[/dim]")
 
@@ -48,7 +51,7 @@ def _pick_profile(prompt: str) -> Profile | None:
         return None
 
     for i, p in enumerate(profiles, start=1):
-        console.print(f"  {i}) {p.name} [dim]({p.protocol.value}, {p.server_display})[/dim]")
+        console.print(f"  {i}) {escape(p.name)} [dim]({p.type_label}, {escape(p.server_display)})[/dim]")
     idx = IntPrompt.ask(prompt, default=0)
     if idx < 1 or idx > len(profiles):
         return None
@@ -62,7 +65,7 @@ def _pick_subscription(prompt: str) -> Subscription | None:
         return None
 
     for i, s in enumerate(subs, start=1):
-        console.print(f"  {i}) {s.name} [dim]({s.url})[/dim]")
+        console.print(f"  {i}) {escape(s.name)} [dim]({escape(s.url)})[/dim]")
     idx = IntPrompt.ask(prompt, default=0)
     if idx < 1 or idx > len(subs):
         return None
@@ -76,11 +79,36 @@ def _connect_flow() -> None:
 
 
 def _add_link_flow() -> None:
-    from v2rm.cli.add import add_command
+    from v2rm.cli.add import add_links_text
 
     link = Prompt.ask("Paste a share link")
     if link:
-        _safe(add_command, link, file=None)
+        _safe(add_links_text, link)
+
+
+def _add_json_flow() -> None:
+    from v2rm.cli.add import add_json_text, read_source
+
+    source = Prompt.ask("Path to an Xray JSON file (to paste JSON instead, use `v2rm add --json -`)").strip()
+    if source:
+        _safe(lambda: add_json_text(read_source(source)))
+
+
+def _add_masque_flow() -> None:
+    from v2rm.cli.add import add_masque_profile
+
+    server = Prompt.ask("MASQUE server (host name or IP)").strip()
+    if not server:
+        return
+    port = IntPrompt.ask("Port", default=443)
+    sni = Prompt.ask("TLS server name (SNI)", default=server).strip()
+    alpn = Prompt.ask("ALPN (h2 = HTTP/2, h3 = HTTP/3)", default="h2")
+    user = Prompt.ask("User name (leave empty for none)", default="").strip()
+    password = Prompt.ask("Password", password=True) if user else ""
+    path = Prompt.ask("Path (leave empty for none)", default="").strip()
+    name = Prompt.ask("Name (leave empty for host:port)", default="").strip()
+    # A plain function, so every argument is explicit (no Typer defaults involved).
+    _safe(add_masque_profile, server, port, sni, alpn, user or None, password or None, path, "", [], "", name or None)
 
 
 def _add_subscription_flow() -> None:
@@ -147,17 +175,19 @@ def run_menu() -> None:
         "4": ("List profiles", _list_profiles_flow),
         "5": ("Add a link", _add_link_flow),
         "6": ("Add a subscription", _add_subscription_flow),
-        "7": ("Remove a profile", _remove_profile_flow),
-        "8": ("Remove a subscription", _remove_subscription_flow),
-        "9": ("Test a profile", _test_flow),
-        "10": (
+        "7": ("Add a JSON config", _add_json_flow),
+        "8": ("Add a MASQUE server", _add_masque_flow),
+        "9": ("Remove a profile", _remove_profile_flow),
+        "10": ("Remove a subscription", _remove_subscription_flow),
+        "11": ("Test a profile", _test_flow),
+        "12": (
             "Test all profiles",
             lambda: _safe(
                 test_command, None, all_profiles=True, protocol=None, subscription=None, concurrency=4, timeout=10.0
             ),
         ),
-        "11": ("Update a subscription", _update_one_subscription_flow),
-        "12": (
+        "13": ("Update a subscription", _update_one_subscription_flow),
+        "14": (
             "Update all subscriptions",
             lambda: _safe(
                 update_subscription, None, all_subs=True, proxy=None, force=False, respect_interval=False
