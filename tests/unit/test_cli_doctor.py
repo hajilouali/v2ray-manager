@@ -220,3 +220,24 @@ def test_the_output_indents_hints_under_their_warning(firewall):
     assert lines[index].startswith("warn")
     assert UFW_ALLOW in lines[index + 2]
     assert lines[index + 1].startswith("       ")
+
+
+# ---- doctor is what people run when something is wrong: it must report, not crash -------------------------
+
+
+def test_a_corrupt_profile_store_is_reported_not_fatal(xray_installed):
+    paths.profiles_file().parent.mkdir(parents=True, exist_ok=True)
+    paths.profiles_file().write_text("{not json")
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0, result.output
+    assert "Couldn't read the saved profiles" in result.output
+    assert "Xray masque: supported" in result.output  # the rest of the report is still there
+
+
+def test_a_corrupt_login_file_is_reported_not_fatal(firewall):
+    runner.invoke(app, ["port", "set", "--listen", "0.0.0.0"])
+    paths.auth_file().write_text("{broken")
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0, result.output
+    assert "login file" in result.output and "unreadable" in result.output
+    assert "No login is required" in result.output  # and the exposure advice still follows

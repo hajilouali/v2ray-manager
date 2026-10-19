@@ -191,3 +191,80 @@ def test_no_auth_leaves_the_inbound_settings_alone():
     primary, twin = build_raw_runtime_config(profile, 10808, 10809, "127.0.0.1")["inbounds"]
     assert "accounts" not in primary["settings"]
     assert "accounts" not in twin["settings"]
+
+
+# ---- configs nobody here wrote: odd shapes must not crash a connect ---------------------------------------
+
+
+@pytest.mark.parametrize("junk", ["x", 5, {"a": 1}, True])
+def test_a_non_list_inbounds_value_is_replaced_by_the_defaults_with_a_note(junk):
+    notes: list[str] = []
+    config = build_raw_runtime_config(raw_profile({"inbounds": junk, "outbounds": []}), 10808, 10809, "127.0.0.1", notes=notes)
+    assert [i["protocol"] for i in config["inbounds"]] == ["socks", "http"]
+    assert "malformed 'inbounds' value" in notes[0]
+
+
+def test_entries_that_are_not_objects_are_dropped_with_a_note():
+    notes: list[str] = []
+    profile = raw_profile({"inbounds": [None, "s", 3, {"tag": "t", "protocol": "socks", "port": 1}], "outbounds": []})
+    config = build_raw_runtime_config(profile, 10808, 10809, "127.0.0.1", notes=notes)
+    assert [i["tag"] for i in config["inbounds"]] == ["t", "t-http"]
+    assert notes[0].count("an inbound entry that isn't an object") == 3
+
+
+@pytest.mark.parametrize("settings", [None, "weird", 5, []])
+def test_a_non_object_settings_value_on_the_kept_inbound_is_replaced(settings):
+    profile = raw_profile({"inbounds": [{"tag": "in", "protocol": "mixed", "port": 1, "settings": settings}], "outbounds": []})
+    primary, twin = build_raw_runtime_config(profile, 10808, 10809, "127.0.0.1", ProxyAuth("u", "p"))["inbounds"]
+    assert primary["settings"]["accounts"] == [{"user": "u", "pass": "p"}]
+    assert twin["tag"] == "in-http"
+
+
+@pytest.mark.parametrize(
+    "routing",
+    [None, [], "x", {"rules": "x"}, {"rules": {"a": 1}}, {"rules": [None, 5, "s"]}, {"rules": [{"inboundTag": "in"}, {"inboundTag": None}]}],
+)
+def test_malformed_routing_is_left_alone_and_does_not_crash(routing):
+    profile = raw_profile({"inbounds": [{"tag": "in", "protocol": "mixed", "port": 1}], "outbounds": [], "routing": routing})
+    config = build_raw_runtime_config(profile, 10808, 10809, "127.0.0.1")
+    assert [i["tag"] for i in config["inbounds"]] == ["in", "in-http"]
+    assert config["routing"] == routing
+
+
+def test_valid_rules_next_to_junk_ones_are_still_patched():
+    routing = {"rules": [None, {"inboundTag": ["in"], "outboundTag": "a"}, "junk"]}
+    profile = raw_profile({"inbounds": [{"tag": "in", "protocol": "mixed", "port": 1}], "outbounds": [], "routing": routing})
+    rules = build_raw_runtime_config(profile, 10808, 10809, "127.0.0.1")["routing"]["rules"]
+    assert rules[1]["inboundTag"] == ["in", "in-http"]
+
+
+# ---- listeners that don't come from `inbounds` ----------------------------------------------------------------
+
+
+def test_the_real_serverless_configs_open_no_listener_of_their_own():
+    notes: list[str] = []
+    for profile in serverless_profiles():
+        build_raw_runtime_config(profile, 10808, 10809, "127.0.0.1", notes=notes)
+    assert not any("listener" in n for n in notes)
+
+
+def test_metrics_and_api_listeners_are_named_in_the_notes_and_left_untouched():
+    config = {
+        "inbounds": [{"tag": "in", "protocol": "mixed", "port": 1}],
+        "outbounds": [],
+        "metrics": {"tag": "metrics", "listen": "0.0.0.0:11111"},
+        "api": {"tag": "api", "listen": "127.0.0.1:10085", "services": ["StatsService"]},
+    }
+    notes: list[str] = []
+    runtime = build_raw_runtime_config(raw_profile(config), 10808, 10809, "172.18.0.1", notes=notes)
+    (listener_note,) = [n for n in notes if "listener" in n]
+    assert "metrics on 0.0.0.0:11111" in listener_note and "api on 127.0.0.1:10085" in listener_note
+    assert "not controlled by `v2rm port set --listen`" in listener_note
+    assert runtime["metrics"] == config["metrics"] and runtime["api"] == config["api"]
+
+
+@pytest.mark.parametrize("junk", [{"metrics": "x"}, {"metrics": {"tag": "m"}}, {"api": {"listen": ""}}, {"api": {"listen": 5}}, {"api": [1]}])
+def test_sections_without_a_listen_address_produce_no_note(junk):
+    notes: list[str] = []
+    build_raw_runtime_config(raw_profile({"outbounds": [], **junk}), 10808, 10809, "127.0.0.1", notes=notes)
+    assert not any("listener" in n for n in notes)

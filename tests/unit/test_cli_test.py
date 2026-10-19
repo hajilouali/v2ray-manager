@@ -197,3 +197,21 @@ def test_bracketed_profile_names_are_printed_literally(stubbed):
     assert "OK [free] node" in single.output
     batch = runner.invoke(app, ["test", "--all"])
     assert "[free] node" in batch.output
+
+
+def test_concurrent_workers_are_never_handed_the_same_port():
+    from concurrent.futures import ThreadPoolExecutor
+
+    from v2rm.cli.test import _free_port
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        ports = list(pool.map(lambda _: _free_port(), range(200)))
+    assert len(set(ports)) == len(ports)
+
+
+def test_the_two_ports_of_one_test_differ():
+    from v2rm.cli.test import _free_port
+
+    for _ in range(50):
+        first = _free_port()
+        assert _free_port(avoid=first) != first

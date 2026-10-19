@@ -76,11 +76,21 @@ def rewrite_inbounds(
     auth: ProxyAuth | None,
     notes: list[str],
 ) -> None:
-    """Replace config['inbounds'] (and patch routing inboundTag lists) in place."""
+    """Replace config['inbounds'] (and patch routing inboundTag lists) in place.
+
+    The config comes from a file or subscription nobody here wrote, so odd
+    shapes (a non-list `inbounds`, non-object entries, `settings: null`) are
+    dropped or replaced rather than allowed to crash the connect."""
     original = config.get("inbounds") or []
     kept: list[dict[str, Any]] = []
     dropped: list[str] = []
+    if not isinstance(original, list):
+        dropped.append("a malformed 'inbounds' value")
+        original = []
     for inbound in original:
+        if not isinstance(inbound, dict):
+            dropped.append("an inbound entry that isn't an object")
+            continue
         protocol = str(inbound.get("protocol", "")).lower()
         label = f"{protocol or '?'} '{inbound['tag']}'" if inbound.get("tag") else (protocol or "?")
         if protocol in KEPT_INBOUND_PROTOCOLS and not kept:
@@ -109,7 +119,9 @@ def rewrite_inbounds(
     primary["tag"] = tag
     primary["listen"] = listen_address  # always explicit: omitted `listen` means 0.0.0.0 in Xray
 
-    settings = primary.setdefault("settings", {})
+    if not isinstance(primary.get("settings"), dict):
+        primary["settings"] = {}
+    settings = primary["settings"]
     if "ip" in settings:
         ip = udp_associate_address(listen_address)
         if ip:
@@ -129,8 +141,10 @@ def rewrite_inbounds(
 
     # Rules that match the original inbound by tag must match the twin too,
     # or traffic arriving on v2rm's other port would skip them.
-    for rule in (config.get("routing") or {}).get("rules") or []:
-        tags = rule.get("inboundTag")
+    routing = config.get("routing")
+    rules = routing.get("rules") if isinstance(routing, dict) else None
+    for rule in rules if isinstance(rules, list) else []:
+        tags = rule.get("inboundTag") if isinstance(rule, dict) else None
         if isinstance(tags, list) and tag in tags and twin_tag not in tags:
             tags.append(twin_tag)
 
@@ -144,8 +158,29 @@ def build_raw_runtime_config(
     notes: list[str] | None = None,
 ) -> dict[str, Any]:
     config = copy.deepcopy(profile.raw_config or {})
-    rewrite_inbounds(config, socks_port, http_port, listen_address, auth, notes if notes is not None else [])
+    collected = notes if notes is not None else []
+    rewrite_inbounds(config, socks_port, http_port, listen_address, auth, collected)
+    extra = own_listeners(config)
+    if extra:
+        collected.append(
+            "This raw config also opens listener(s) of its own: " + ", ".join(extra)
+            + ". They are left as written and are not controlled by `v2rm port set --listen`."
+        )
     return config
+
+
+def own_listeners(config: dict[str, Any]) -> list[str]:
+    """Sections other than `inbounds` that make Xray listen on an address of
+    their own: `metrics.listen` and `api.listen`. v2rm leaves them as written
+    (the config's author may rely on them) but says so, because they sit outside
+    the listen address the user chose."""
+    found: list[str] = []
+    for section in ("metrics", "api"):
+        value = config.get(section)
+        listen = value.get("listen") if isinstance(value, dict) else None
+        if isinstance(listen, str) and listen.strip():
+            found.append(f"{section} on {listen.strip()}")
+    return found
 
 
 # Outbounds that stay on this machine's own connection. Newer Xray names the first

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import typer
@@ -31,13 +32,22 @@ SERVERLESS_NOTE = (
 )
 
 
+_handed_out: set[int] = set()
+_handed_out_lock = threading.Lock()
+
+
 def _free_port(avoid: int | None = None) -> int:
+    """An unused loopback port. The probe socket is closed before the engine
+    binds, so with `--concurrency N` two workers could be given the same port;
+    remembering what has been handed out in this process closes that gap."""
     while True:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
-        if port != avoid:
-            return port
+        with _handed_out_lock:
+            if port != avoid and port not in _handed_out:
+                _handed_out.add(port)
+                return port
 
 
 def _test_one(

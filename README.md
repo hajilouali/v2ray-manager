@@ -164,6 +164,7 @@ The name defaults to the config's `"remarks"`.
 - v2rm's HTTP port is served by an added `http` inbound (tag `<original-tag>-http`, same listen address, same `sniffing`), and that tag is appended to every `routing.rules[].inboundTag` list that contains the original tag, so the config's routing treats both alike. A `mixed` inbound already serves both on the SOCKS port. A config with no usable inbound gets a normal SOCKS + HTTP pair.
 - If you set a proxy login (`--auth`), every inbound requires it.
 - `dns`, `outbounds`, `routing`, `policy`, `fakedns`, `observatory`, balancers, unknown keys and `version` stay exactly as written.
+- Listeners that don't come from `inbounds` — `metrics.listen` and `api.listen` — are also left as written, but `connect` and `test` name them in a note, because they sit outside the address you chose.
 - **Routing presets don't apply.** A raw profile carries its own routing; `v2rm route show`, `route set`, `status` and `connect` say so instead of implying a preset is in effect.
 - **Always Xray-core**, whatever `v2rm core use` says. If sing-box is your default, v2rm switches to Xray for this profile and says so in one line (your default is not changed).
 - **Version check.** If the config declares `"version": {"min": …, "max": …}`, v2rm compares it numerically with the installed Xray (`26.6.27` and `v26.10.17` both work) and, if it doesn't fit, tells you to run `v2rm core update xray`.

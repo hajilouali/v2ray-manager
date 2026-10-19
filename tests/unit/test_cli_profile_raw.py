@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shlex
 import sys
 import textwrap
 
@@ -30,7 +32,10 @@ def editor(tmp_path, monkeypatch):
     def install(body: str) -> None:
         script = tmp_path / "fake_editor.py"
         script.write_text("import json, os, sys\npath = sys.argv[1]\n" + textwrap.dedent(body), encoding="utf-8")
-        monkeypatch.setenv("EDITOR", f"{sys.executable} {script}")
+        if os.name == "nt":  # v2rm splits $EDITOR non-POSIX-style on Windows, where quotes would stay literal
+            monkeypatch.setenv("EDITOR", f"{sys.executable} {script}")
+        else:
+            monkeypatch.setenv("EDITOR", f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}")
 
     return install
 

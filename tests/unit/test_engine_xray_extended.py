@@ -309,10 +309,22 @@ def test_masque_user_and_warp_together_are_rejected_at_generation_too():
         generate_config(p, GLOBAL, 1, 2)
 
 
-def test_masque_inbounds_still_follow_listen_address_and_auth():
-    config = generate_config(masque(), GLOBAL, 10808, 10809, "172.18.0.1", ProxyAuth("u", "p"))
-    assert [i["listen"] for i in config["inbounds"]] == ["172.18.0.1", "172.18.0.1"]
+@pytest.mark.parametrize("listen", ["127.0.0.1", "0.0.0.0", "172.18.0.1"])
+def test_masque_inbounds_still_follow_listen_address_and_auth(listen):
+    config = generate_config(masque(), GLOBAL, 10808, 10809, listen, ProxyAuth("u", "p"))
+    assert [(i["protocol"], i["listen"], i["port"]) for i in config["inbounds"]] == [
+        ("socks", listen, 10808),
+        ("http", listen, 10809),
+    ]
+    assert config["inbounds"][0]["settings"]["accounts"] == [{"user": "u", "pass": "p"}]
     assert config["inbounds"][1]["settings"]["accounts"] == [{"user": "u", "pass": "p"}]
+
+
+@pytest.mark.parametrize("listen", ["127.0.0.1", "0.0.0.0", "172.18.0.1"])
+def test_masque_inbounds_without_a_login(listen):
+    config = generate_config(masque(), GLOBAL, 10808, 10809, listen)
+    assert [i["listen"] for i in config["inbounds"]] == [listen, listen]
+    assert config["inbounds"][0]["settings"]["auth"] == "noauth"
 
 
 # ---- pre-flight predicate -------------------------------------------------------

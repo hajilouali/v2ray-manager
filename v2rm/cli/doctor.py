@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from v2rm.coredl.install import current_version
+from v2rm.errors import V2rmError
 from v2rm.engines.probe import probe_xray_features
 from v2rm.engines.versioning import compare_versions, raw_version_requirement
 from v2rm.net import addresses
@@ -75,8 +76,14 @@ def _xray_checks() -> list[Check]:
             )
         )
 
+    try:
+        stored = ProfileStore().list()
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        checks.append(Check(False, f"Couldn't read the saved profiles, so their Xray version needs weren't checked ({exc})"))
+        stored = []
+
     too_new = []
-    for profile in ProfileStore().list():
+    for profile in stored:
         if not profile.is_raw:
             continue
         minimum, _ = raw_version_requirement(profile)
@@ -97,10 +104,15 @@ def _xray_checks() -> list[Check]:
 
 def _listen_checks() -> list[Check]:
     state = AppStateStore().load()
-    auth = AuthStore().load()
     listen = state.listen_address
     ports = (state.socks_port, state.http_port)
     checks = [Check(True, f"SOCKS port {state.socks_port}, HTTP port {state.http_port}")]
+
+    try:
+        auth = AuthStore().load()
+    except V2rmError as exc:  # fails closed everywhere else; here it is just something to report
+        auth = None
+        checks.append(Check(False, str(exc)))
 
     warning = listen_warning(listen)
     if warning is None:
