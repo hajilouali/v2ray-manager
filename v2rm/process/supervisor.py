@@ -13,8 +13,10 @@ from typing import Any
 
 from v2rm.constants import CONNECT_POLL_INTERVAL, CONNECT_POLL_TIMEOUT, DISCONNECT_GRACE_SECONDS
 from v2rm.errors import ConnectFailedError, EngineNotInstalledError, NotConnectedError
+from v2rm.models.auth import ProxyAuth
 from v2rm.models.enums import EngineKind
 from v2rm.models.profile import Profile
+from v2rm.process.preflight import run_config_test
 from v2rm.routing.model import RoutePlan
 from v2rm.store import paths
 
@@ -93,7 +95,14 @@ def status() -> dict[str, Any]:
     if connected and paths.engine_meta_file().exists():
         with contextlib.suppress(Exception):
             meta = json.loads(paths.engine_meta_file().read_text(encoding="utf-8"))
-    return {"connected": connected, "pid": pid, **meta}
+    info: dict[str, Any] = {"connected": connected, "pid": pid, **meta}
+    if connected and meta.get("socks_port"):
+        # Is the proxy actually accepting connections, at the address it was
+        # really bound to (not blindly 127.0.0.1)?
+        info["listening"] = _port_open(
+            int(meta["socks_port"]), host=client_address(meta.get("listen_address", "127.0.0.1"))
+        )
+    return info
 
 
 def _port_open(port: int, host: str = "127.0.0.1", timeout: float = 0.3) -> bool:
@@ -104,15 +113,18 @@ def _port_open(port: int, host: str = "127.0.0.1", timeout: float = 0.3) -> bool
         return False
 
 
-def _probe_address(listen_address: str) -> str:
-    """The address to actually connect() to when checking whether the
-    engine has started listening. 0.0.0.0/:: aren't valid connect()
-    targets even though the engine *is* listening on loopback too in that
-    case, so probe 127.0.0.1 instead; a specific non-wildcard address is
-    probed directly, since it may not include loopback at all."""
+def client_address(listen_address: str) -> str:
+    """The address a client *on this host* should connect() to for a proxy
+    bound to `listen_address`: 0.0.0.0/:: aren't valid connect() targets
+    (though the engine is listening on loopback too in that case), so use
+    127.0.0.1; a specific address is used as is, since it may not include
+    loopback at all. Used for the startup probe, `status`, and `env`/`exec`."""
     if listen_address in ("0.0.0.0", "::", ""):
         return "127.0.0.1"
     return listen_address
+
+
+_probe_address = client_address
 
 
 def _tail_log(n: int = 20) -> str:
@@ -123,6 +135,42 @@ def _tail_log(n: int = 20) -> str:
     return "\n".join(lines[-n:])
 
 
+def _prepare_config(
+    profile: Profile,
+    engine: EngineKind,
+    route_plan: RoutePlan,
+    socks_port: int,
+    http_port: int,
+    listen_address: str,
+    auth: ProxyAuth | None,
+    config_path: Path,
+    binary: Path,
+) -> list[str]:
+    """Generate the runtime config into `config_path` and validate it, without
+    starting anything. Raises on a profile the engine can't run, a core that's
+    too old for it, or a config the engine's own `-test` rejects. Returns the
+    one-line notes the generator produced (things ignored or rewritten)."""
+    from v2rm.coredl.install import current_version
+    from v2rm.engines import check_core_compat, generate_config, needs_preflight
+
+    check_core_compat(engine, profile, current_version(engine.value))
+    notes: list[str] = []
+    config = generate_config(
+        engine,
+        profile,
+        route_plan,
+        socks_port,
+        http_port,
+        listen_address=listen_address,
+        auth=auth,
+        notes=notes,
+    )
+    config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    if needs_preflight(engine, profile):
+        run_config_test(binary, config_path, paths.geo_assets_dir())
+    return notes
+
+
 def connect(
     profile: Profile,
     engine: EngineKind,
@@ -130,21 +178,34 @@ def connect(
     socks_port: int,
     http_port: int,
     listen_address: str = "127.0.0.1",
-) -> None:
+    auth: ProxyAuth | None = None,
+) -> list[str]:
+    """Start the persistent connection. Returns notes about anything the
+    generator ignored or rewrote, for the caller to show.
+
+    The new config is generated and validated *before* the existing
+    connection is touched, so a profile that can't run never leaves the user
+    disconnected."""
+    binary = _binary_path(engine)
+
+    paths.run_dir().mkdir(parents=True, exist_ok=True)
+    paths.logs_dir().mkdir(parents=True, exist_ok=True)
+    candidate = paths.run_dir() / "config.next.json"
+    try:
+        notes = _prepare_config(
+            profile, engine, route_plan, socks_port, http_port, listen_address, auth, candidate, binary
+        )
+    except BaseException:
+        with contextlib.suppress(OSError):
+            candidate.unlink()
+        raise
+
     connected, _ = is_connected()
     if connected:
         disconnect()
 
-    binary = _binary_path(engine)
-
-    from v2rm.engines import generate_config
-
-    config = generate_config(engine, profile, route_plan, socks_port, http_port, listen_address=listen_address)
-
-    paths.run_dir().mkdir(parents=True, exist_ok=True)
-    paths.logs_dir().mkdir(parents=True, exist_ok=True)
     config_path = paths.runtime_config_file()
-    config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    os.replace(candidate, config_path)
 
     log_path = paths.engine_log_file()
     if log_path.exists():
@@ -170,16 +231,18 @@ def connect(
                 "engine": engine.value,
                 "profile_id": profile.id,
                 "profile_name": profile.name,
+                "profile_kind": profile.type_label,
                 "listen_address": listen_address,
                 "socks_port": socks_port,
                 "http_port": http_port,
+                "authenticated": auth is not None,
                 "started_at": time.time(),
             }
         ),
         encoding="utf-8",
     )
 
-    probe_host = _probe_address(listen_address)
+    probe_host = client_address(listen_address)
     deadline = time.monotonic() + CONNECT_POLL_TIMEOUT
     while time.monotonic() < deadline:
         if proc.poll() is not None:
@@ -188,7 +251,7 @@ def connect(
                 f"{engine.value} exited immediately (code {proc.returncode}). Last log lines:\n{_tail_log()}"
             )
         if _port_open(socks_port, host=probe_host):
-            return
+            return notes
         time.sleep(CONNECT_POLL_INTERVAL)
 
     if proc.poll() is not None:
@@ -206,21 +269,25 @@ def run_temporary(
     socks_port: int,
     http_port: int,
     start_timeout: float = CONNECT_POLL_TIMEOUT,
+    auth: ProxyAuth | None = None,
+    notes: list[str] | None = None,
 ):
     """Launch a short-lived, throwaway engine instance for real connectivity
     testing. Fully independent of the persistent connection's pidfile/
     config/log -- safe to run several of these concurrently (e.g. `test
     --all`) and safe to run alongside an existing `connect`ed session
-    without disturbing it."""
+    without disturbing it. Always bound to loopback, whatever address the
+    persistent proxy listens on; `auth`, if given, is applied exactly as for
+    the real connection so the test exercises the same inbound config."""
     binary = _binary_path(engine)
-
-    from v2rm.engines import generate_config
-
-    config = generate_config(engine, profile, route_plan, socks_port, http_port)
 
     with tempfile.TemporaryDirectory(prefix="v2rm-test-") as tmp_dir:
         config_path = Path(tmp_dir) / "config.json"
-        config_path.write_text(json.dumps(config), encoding="utf-8")
+        produced = _prepare_config(
+            profile, engine, route_plan, socks_port, http_port, "127.0.0.1", auth, config_path, binary
+        )
+        if notes is not None:
+            notes.extend(produced)
         log_path = Path(tmp_dir) / "engine.log"
 
         env = dict(os.environ)

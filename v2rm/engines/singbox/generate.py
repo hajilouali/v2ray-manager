@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from v2rm.constants import DEFAULT_LISTEN_ADDRESS, GEOIP_RULESET_BASE, GEOSITE_RULESET_BASE
-from v2rm.errors import UnsupportedProtocolError
+from v2rm.errors import UnsupportedFeatureError, UnsupportedProtocolError
+from v2rm.models.auth import ProxyAuth
 from v2rm.models.enums import Protocol, SecurityKind, TransportKind
 from v2rm.models.profile import Profile
 from v2rm.routing.model import RoutePlan
@@ -20,24 +21,35 @@ SUPPORTED_PROTOCOLS = frozenset(
 )
 
 
+# sing-box's uTLS fingerprint names. Xray also takes "unsafe" and a few more;
+# anything else can't be expressed here and is reported, not dropped.
+_UTLS_FINGERPRINTS = frozenset(
+    {"chrome", "firefox", "edge", "safari", "360", "qq", "ios", "android", "random", "randomized"}
+)
+_PACKET_ENCODINGS = {"xudp": "xudp", "packet": "packetaddr", "packetaddr": "packetaddr"}
+
+
 def generate_config(
     profile: Profile,
     route_plan: RoutePlan,
     socks_port: int,
     http_port: int,
     listen_address: str = DEFAULT_LISTEN_ADDRESS,
+    auth: ProxyAuth | None = None,
+    notes: list[str] | None = None,
 ) -> dict[str, Any]:
-    if profile.protocol not in SUPPORTED_PROTOCOLS:  # pragma: no cover - all Protocol values covered today
-        raise UnsupportedProtocolError(f"sing-box does not support '{profile.protocol.value}' profiles.")
+    if profile.protocol not in SUPPORTED_PROTOCOLS:
+        raise UnsupportedProtocolError(
+            f"sing-box does not support '{profile.protocol.value}' profiles; "
+            "use Xray-core for it (`v2rm core use xray`)."
+        )
+    _reject_xray_only_options(profile)
 
     rule_sets, rules = build_routing_rules(route_plan)
 
     return {
         "log": {"level": "warn"},
-        "inbounds": [
-            {"type": "socks", "tag": "socks-in", "listen": listen_address, "listen_port": socks_port},
-            {"type": "http", "tag": "http-in", "listen": listen_address, "listen_port": http_port},
-        ],
+        "inbounds": _inbounds(socks_port, http_port, listen_address, auth),
         "outbounds": [
             _outbound(profile),
             {"type": "direct", "tag": "direct"},
@@ -51,6 +63,40 @@ def generate_config(
     }
 
 
+def _inbounds(
+    socks_port: int, http_port: int, listen_address: str, auth: ProxyAuth | None
+) -> list[dict[str, Any]]:
+    socks: dict[str, Any] = {"type": "socks", "tag": "socks-in", "listen": listen_address, "listen_port": socks_port}
+    http: dict[str, Any] = {"type": "http", "tag": "http-in", "listen": listen_address, "listen_port": http_port}
+    if auth is not None:
+        socks["users"] = [{"username": auth.user, "password": auth.password}]
+        http["users"] = [{"username": auth.user, "password": auth.password}]
+    return [socks, http]
+
+
+def _reject_xray_only_options(profile: Profile) -> None:
+    """Profile options with no sing-box equivalent are reported as an error --
+    quietly dropping them would connect the profile *without* e.g. its
+    fragmentation or encryption and fail in confusing ways."""
+    transport, tls = profile.transport, profile.tls
+    unsupported: list[str] = []
+    if transport.network in (TransportKind.XHTTP, TransportKind.KCP):
+        unsupported.append(f"the '{transport.network.value}' transport")
+    if transport.finalmask:
+        unsupported.append("finalmask ('fm')")
+    if tls.ech_config_list:
+        unsupported.append("ECH ('ech'/'echConfigList')")
+    if profile.encryption:
+        unsupported.append("VLESS post-quantum encryption")
+    if tls.fingerprint and tls.fingerprint.lower() not in _UTLS_FINGERPRINTS:
+        unsupported.append(f"the '{tls.fingerprint}' TLS fingerprint")
+    if unsupported:
+        raise UnsupportedFeatureError(
+            "sing-box doesn't support " + ", ".join(unsupported)
+            + ", which this profile uses. Use Xray-core for it (`v2rm core use xray`)."
+        )
+
+
 def _outbound(profile: Profile) -> dict[str, Any]:
     base: dict[str, Any] = {"tag": "proxy", "server": profile.server, "server_port": profile.port}
 
@@ -59,11 +105,13 @@ def _outbound(profile: Profile) -> dict[str, Any]:
         base["uuid"] = profile.uuid
         base["alter_id"] = profile.alter_id
         base["security"] = profile.method or "auto"
+        _apply_packet_encoding(base, profile)
     elif profile.protocol == Protocol.VLESS:
         base["type"] = "vless"
         base["uuid"] = profile.uuid
         if profile.flow:
             base["flow"] = profile.flow
+        _apply_packet_encoding(base, profile)
     elif profile.protocol == Protocol.TROJAN:
         base["type"] = "trojan"
         base["password"] = profile.password
@@ -101,29 +149,52 @@ def _outbound(profile: Profile) -> dict[str, Any]:
     return base
 
 
+def _apply_packet_encoding(base: dict[str, Any], profile: Profile) -> None:
+    mapped = _PACKET_ENCODINGS.get((profile.packet_encoding or "").lower())
+    if mapped:
+        base["packet_encoding"] = mapped
+
+
+def _host_and_headers(profile: Profile) -> tuple[str, dict[str, str]]:
+    host = profile.transport.host
+    headers: dict[str, str] = {}
+    for key, value in profile.transport.headers.items():
+        if key.lower() == "host":
+            host = host or value
+        else:
+            headers[key] = value
+    return host, headers
+
+
 def _transport(profile: Profile) -> dict[str, Any] | None:
     network = profile.transport.network
+    host, headers = _host_and_headers(profile)
     if network == TransportKind.TCP:
         return None
     if network == TransportKind.WS:
         d: dict[str, Any] = {"type": "ws", "path": profile.transport.path or "/"}
-        if profile.transport.host:
-            d["headers"] = {"Host": profile.transport.host}
+        ws_headers = dict(headers)
+        if host:
+            ws_headers["Host"] = host
+        if ws_headers:
+            d["headers"] = ws_headers
         return d
     if network == TransportKind.GRPC:
         return {"type": "grpc", "service_name": profile.transport.service_name}
     if network == TransportKind.HTTP:
         d = {"type": "http", "path": profile.transport.path or "/"}
-        if profile.transport.host:
-            d["host"] = [profile.transport.host]
+        if host:
+            d["host"] = [host]
         return d
     if network == TransportKind.HTTPUPGRADE:
-        return {"type": "httpupgrade", "path": profile.transport.path or "/", "host": profile.transport.host}
+        d = {"type": "httpupgrade", "path": profile.transport.path or "/", "host": host}
+        if headers:
+            d["headers"] = headers
+        return d
     if network == TransportKind.QUIC:
         return {"type": "quic"}
-    # kcp has no sing-box equivalent, and xhttp support varies by version --
-    # omit rather than emit a transport block that may not parse.
-    return None
+    # xhttp/kcp are rejected up front by _reject_xray_only_options.
+    raise UnsupportedFeatureError(f"sing-box doesn't support the '{network.value}' transport.")  # pragma: no cover
 
 
 def _tls(profile: Profile) -> dict[str, Any] | None:
@@ -138,8 +209,10 @@ def _tls(profile: Profile) -> dict[str, Any] | None:
         d["alpn"] = list(tls.alpn)
     if tls.allow_insecure:
         d["insecure"] = True
+    if tls.cipher_suites:
+        d["cipher_suites"] = [s for s in tls.cipher_suites.split(":") if s]
     if tls.fingerprint:
-        d["utls"] = {"enabled": True, "fingerprint": tls.fingerprint}
+        d["utls"] = {"enabled": True, "fingerprint": tls.fingerprint.lower()}
     if tls.security == SecurityKind.REALITY and tls.reality:
         d["reality"] = {
             "enabled": True,
