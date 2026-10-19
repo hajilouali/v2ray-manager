@@ -86,6 +86,27 @@ class ProfileStore:
                     return
         raise ProfileNotFoundError(f"No profile found with id '{profile.id}'")
 
+    def update_many(self, profiles: Iterable[Profile]) -> int:
+        """Replace several stored profiles in a single read-modify-write.
+
+        update() rewrites the whole file per call, which is O(n^2) disk I/O
+        when refreshing a several-hundred-profile subscription. Profiles
+        whose id isn't stored are skipped; returns how many were replaced."""
+        by_id = {p.id: p for p in profiles}
+        if not by_id:
+            return 0
+        replaced = 0
+        with store_lock(self._lock_path):
+            items = self._load_raw()
+            for i, item in enumerate(items):
+                new = by_id.get(item["id"])
+                if new is not None:
+                    items[i] = new.to_dict()
+                    replaced += 1
+            if replaced:
+                self._save_raw(items)
+        return replaced
+
     def remove(self, profile_id: str) -> None:
         with store_lock(self._lock_path):
             items = self._load_raw()

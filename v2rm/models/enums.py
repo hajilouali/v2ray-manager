@@ -10,6 +10,10 @@ class Protocol(str, Enum):
     SHADOWSOCKS = "shadowsocks"
     HYSTERIA2 = "hysteria2"
     TUIC = "tuic"
+    MASQUE = "masque"
+    # A complete, hand-written Xray config (no single server): e.g. "serverless"
+    # DPI-evasion configs. Stored verbatim in Profile.raw_config.
+    RAW_XRAY = "raw-xray"
 
 
 class SecurityKind(str, Enum):
@@ -43,6 +47,7 @@ class SubscriptionFormat(str, Enum):
     BASE64_LIST = "base64_list"
     PLAIN_LIST = "plain_list"
     CLASH_YAML = "clash_yaml"
+    XRAY_JSON = "xray_json"
 
 
 class RoutePreset(str, Enum):

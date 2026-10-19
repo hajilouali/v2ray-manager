@@ -17,6 +17,9 @@ class Subscription:
     last_updated: str | None = None
     last_status: str = "never"
     profile_ids: list[str] = field(default_factory=list)
+    # The provider's own refresh hint (`#profile-update-interval: N` header
+    # comment, in hours); informational unless `sub update --respect-interval`.
+    update_interval_hours: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -28,6 +31,7 @@ class Subscription:
             "last_updated": self.last_updated,
             "last_status": self.last_status,
             "profile_ids": list(self.profile_ids),
+            "update_interval_hours": self.update_interval_hours,
         }
 
     @classmethod
@@ -42,4 +46,5 @@ class Subscription:
             last_updated=data.get("last_updated"),
             last_status=data.get("last_status", "never"),
             profile_ids=list(data.get("profile_ids", [])),
+            update_interval_hours=data.get("update_interval_hours"),
         )

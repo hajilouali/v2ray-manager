@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import copy
+import hashlib
+import json
 import uuid as uuid_mod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from v2rm.models.enums import Protocol, ProfileSource, SecurityKind, TransportKind
+from v2rm.models.enums import ProfileSource, Protocol, SecurityKind, TransportKind
+
+# Bumped whenever a profile gains stored fields that older parsers dropped, so
+# the store can re-derive them from raw_link for profiles saved by an older
+# version (see v2rm.parsers.migrate). A stored dict without "schema" is v1.
+SCHEMA_VERSION = 2
+
+# Shown instead of server:port for profiles that have no single server.
+NO_SERVER = "—"
 
 
 def new_id() -> str:
@@ -14,6 +25,15 @@ def new_id() -> str:
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def canonical_json(obj: Any) -> str:
+    """Deterministic JSON text: sorted keys, no whitespace."""
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _sha256_hex(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 @dataclass
@@ -44,6 +64,12 @@ class TlsSettings:
     fingerprint: str = ""
     allow_insecure: bool = False
     reality: RealitySettings | None = None
+    # Colon-separated cipher suite names, exactly as Xray's tlsSettings.cipherSuites
+    # takes them (the `cs` share-link parameter).
+    cipher_suites: str = ""
+    # Encrypted ClientHello config, e.g. "cloudflare-ech.com+udp://1.1.1.1"
+    # (the `ech` / `echConfigList` / `echcl` share-link parameters).
+    ech_config_list: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -53,6 +79,8 @@ class TlsSettings:
             "fingerprint": self.fingerprint,
             "allow_insecure": self.allow_insecure,
             "reality": self.reality.to_dict() if self.reality else None,
+            "cipher_suites": self.cipher_suites,
+            "ech_config_list": self.ech_config_list,
         }
 
     @classmethod
@@ -65,6 +93,8 @@ class TlsSettings:
             fingerprint=data.get("fingerprint", ""),
             allow_insecure=bool(data.get("allow_insecure", False)),
             reality=RealitySettings.from_dict(data.get("reality")),
+            cipher_suites=data.get("cipher_suites", ""),
+            ech_config_list=data.get("ech_config_list", ""),
         )
 
 
@@ -75,6 +105,12 @@ class TransportSettings:
     host: str = ""
     service_name: str = ""
     headers: dict[str, str] = field(default_factory=dict)
+    # xhttp: `mode` (auto/packet-up/stream-up/stream-one) and the `extra` JSON object.
+    mode: str = ""
+    xhttp_extra: dict[str, Any] = field(default_factory=dict)
+    # Xray `streamSettings.finalmask` (TLS-hello fragmentation, noise, ...) as a
+    # JSON object (the `fm` share-link parameter), passed through verbatim.
+    finalmask: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -83,6 +119,9 @@ class TransportSettings:
             "host": self.host,
             "service_name": self.service_name,
             "headers": dict(self.headers),
+            "mode": self.mode,
+            "xhttp_extra": copy.deepcopy(self.xhttp_extra),
+            "finalmask": copy.deepcopy(self.finalmask),
         }
 
     @classmethod
@@ -94,6 +133,9 @@ class TransportSettings:
             host=data.get("host", ""),
             service_name=data.get("service_name", ""),
             headers=dict(data.get("headers", {})),
+            mode=data.get("mode", ""),
+            xhttp_extra=copy.deepcopy(data.get("xhttp_extra") or {}),
+            finalmask=copy.deepcopy(data.get("finalmask") or {}),
         )
 
 
@@ -101,8 +143,9 @@ class TransportSettings:
 class Profile:
     name: str
     protocol: Protocol
-    server: str
-    port: int
+    # Optional: a raw Xray profile has no single server/port.
+    server: str = ""
+    port: int = 0
     id: str = field(default_factory=new_id)
     created_at: str = field(default_factory=now_iso)
     source: ProfileSource = ProfileSource.MANUAL
@@ -115,14 +158,24 @@ class Profile:
     method: str = ""
     flow: str = ""
     congestion_control: str = ""
+    # VLESS post-quantum encryption string (mlkem768x25519plus...). Empty means "none".
+    encryption: str = ""
+    # VLESS/VMess packet encoding (xudp/packet/none) as given in the link.
+    packet_encoding: str = ""
 
     transport: TransportSettings = field(default_factory=TransportSettings)
     tls: TlsSettings = field(default_factory=TlsSettings)
 
     # Long-tail per-protocol knobs that don't earn a first-class field: hysteria2
     # obfs/obfs_password/up_mbps/down_mbps, tuic udp_relay_mode/zero_rtt_handshake,
-    # shadowsocks plugin/plugin_opts. Generators read these via .get() with defaults.
+    # shadowsocks plugin/plugin_opts, masque user/warp/remote_dns, legacy `fragment`.
+    # Generators read these via .get() with defaults.
     extra: dict[str, Any] = field(default_factory=dict)
+
+    # The complete Xray config of a raw-xray profile (None for every other kind).
+    raw_config: dict[str, Any] | None = None
+
+    schema: int = SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -141,19 +194,24 @@ class Profile:
             "method": self.method,
             "flow": self.flow,
             "congestion_control": self.congestion_control,
+            "encryption": self.encryption,
+            "packet_encoding": self.packet_encoding,
             "transport": self.transport.to_dict(),
             "tls": self.tls.to_dict(),
-            "extra": dict(self.extra),
+            "extra": copy.deepcopy(self.extra),
+            "raw_config": copy.deepcopy(self.raw_config),
+            "schema": self.schema,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Profile:
+        raw_config = data.get("raw_config")
         return cls(
             id=data["id"],
             name=data["name"],
             protocol=Protocol(data["protocol"]),
-            server=data["server"],
-            port=int(data["port"]),
+            server=data.get("server", ""),
+            port=int(data.get("port", 0) or 0),
             created_at=data.get("created_at", now_iso()),
             source=ProfileSource(data.get("source", ProfileSource.MANUAL.value)),
             subscription_id=data.get("subscription_id"),
@@ -164,22 +222,74 @@ class Profile:
             method=data.get("method", ""),
             flow=data.get("flow", ""),
             congestion_control=data.get("congestion_control", ""),
+            encryption=data.get("encryption", ""),
+            packet_encoding=data.get("packet_encoding", ""),
             transport=TransportSettings.from_dict(data.get("transport")),
             tls=TlsSettings.from_dict(data.get("tls")),
-            extra=dict(data.get("extra", {})),
+            extra=copy.deepcopy(data.get("extra") or {}),
+            raw_config=copy.deepcopy(raw_config) if raw_config is not None else None,
+            schema=int(data.get("schema", 1)),
         )
 
     @property
+    def is_raw(self) -> bool:
+        return self.protocol == Protocol.RAW_XRAY
+
+    @property
+    def type_label(self) -> str:
+        """Short label for the profile list's Type column."""
+        return "raw" if self.is_raw else self.protocol.value
+
+    @property
     def server_display(self) -> str:
+        if self.is_raw or not self.server:
+            return NO_SERVER
         return f"{self.server}:{self.port}"
 
+    def variant_hash(self) -> str:
+        """Short hash of the parameters that distinguish variants of the same
+        node: providers publish one server several times, differing only in
+        fingerprint / cipher suites / finalmask / ECH / VLESS encryption /
+        xhttp extra+mode. Excludes the display name, so it's stable across
+        refreshes."""
+        variant = {
+            "fp": self.tls.fingerprint,
+            "cs": self.tls.cipher_suites,
+            "fm": self.transport.finalmask,
+            "ech": self.tls.ech_config_list,
+            "encryption": self.encryption,
+            "extra": self.transport.xhttp_extra,
+            "mode": self.transport.mode,
+        }
+        return _sha256_hex(canonical_json(variant))[:12]
+
     def identity_key(self) -> tuple[str, ...]:
-        """Stable identity used to match this profile across subscription refreshes,
-        independent of its display name (which providers sometimes rename)."""
-        return (
-            self.protocol.value,
-            self.server,
-            str(self.port),
-            self.uuid,
-            self.password,
-        )
+        """Stable identity used to match this profile across subscription
+        refreshes, independent of its display name (which providers rename)."""
+        if self.protocol == Protocol.RAW_XRAY:
+            config = self.raw_config or {}
+            remarks = str(config.get("remarks") or "").strip()
+            if remarks:
+                return (self.protocol.value, remarks)
+            return (self.protocol.value, "sha256:" + _sha256_hex(canonical_json(config)))
+
+        if self.protocol == Protocol.MASQUE:
+            return (
+                self.protocol.value,
+                self.server,
+                str(self.port),
+                str(self.extra.get("user", "")),
+                self.tls.sni,
+                self.transport.path,
+            )
+
+        base = (self.protocol.value, self.server, str(self.port), self.uuid, self.password)
+        if self.protocol in (Protocol.VLESS, Protocol.TROJAN, Protocol.VMESS):
+            return base + (
+                self.tls.sni,
+                self.transport.host,
+                self.transport.path,
+                self.transport.network.value,
+                self.variant_hash(),
+            )
+        return base
