@@ -14,7 +14,8 @@ Extended CONNECT, anything else HTTP/3.
 from __future__ import annotations
 
 import ipaddress
-from urllib.parse import quote
+import re
+from urllib.parse import quote, urlsplit
 
 from v2rm.errors import ParseError, ProfileValidationError
 from v2rm.models.enums import Protocol, SecurityKind
@@ -26,6 +27,25 @@ DEFAULT_ALPN = ["h2"]
 
 # Headers Xray-core's MasqueConfig.Build refuses (it sets/owns these itself).
 _FORBIDDEN_HEADERS = {"host", "capsule-protocol"}
+
+# HTTP header field names are RFC 9110 "tokens".
+_HEADER_NAME = re.compile(r"[A-Za-z0-9!#$%&'*+.^_`|~-]+")
+
+
+def _strip_path_variables(path: str) -> str:
+    """The `path` without the two URI-template variables Xray substitutes
+    ({target} and {ipproto}); anything else in braces is an error upstream."""
+    return path.replace("{target}", "").replace("{ipproto}", "")
+
+
+def _is_plain_authority(host: str) -> bool:
+    """Xray accepts `host` only if `https://<host>` parses back to exactly that
+    host -- i.e. a bare host or host:port, with no path, query, userinfo or spaces."""
+    try:
+        parts = urlsplit("https://" + host)
+        return parts.netloc == host and not (parts.path or parts.query or parts.fragment) and "@" not in host and " " not in host
+    except ValueError:
+        return False
 
 
 def validate_masque(profile: Profile) -> None:
@@ -53,8 +73,18 @@ def validate_masque(profile: Profile) -> None:
     path = profile.transport.path
     if path and not path.startswith("/"):
         raise ProfileValidationError(f'MASQUE: "path" must start with "/", got {path!r}')
+    if path and ("{" in _strip_path_variables(path) or "}" in _strip_path_variables(path)):
+        raise ProfileValidationError(
+            f'MASQUE: invalid "path" {path!r}, only the variables {{target}} and {{ipproto}} are supported'
+        )
 
-    for key in profile.transport.headers:
+    host = profile.transport.host
+    if host and not _is_plain_authority(host):
+        raise ProfileValidationError(f'MASQUE: invalid "host" {host!r}')
+
+    for key, value in profile.transport.headers.items():
+        if not _HEADER_NAME.fullmatch(key) or any(ch in value for ch in "\r\n\x00"):
+            raise ProfileValidationError(f'MASQUE: invalid header in "headers": "{key}"')
         lowered = key.lower()
         if lowered in _FORBIDDEN_HEADERS:
             raise ProfileValidationError(f'MASQUE: "headers" can\'t contain "{key}"')

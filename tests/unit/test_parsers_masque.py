@@ -127,3 +127,53 @@ def test_missing_server_or_bad_port_is_invalid():
         validate_masque(Profile(server="", port=443, **base))
     with pytest.raises(ProfileValidationError):
         validate_masque(Profile(server="m.example.com", port=70000, **base))
+
+
+# ---- the extra checks Xray-core's MasqueConfig.Build makes (read from its source) --------------------------
+
+
+def masque_profile(**transport) -> Profile:
+    return Profile(
+        name="m", protocol=Protocol.MASQUE, server="m.example.com", port=443,
+        tls=TlsSettings(security=SecurityKind.TLS, alpn=["h2"]),
+        transport=TransportSettings(**transport),
+    )
+
+
+@pytest.mark.parametrize("path", ["/masque", "/", "/masque/{target}", "/{target}/{ipproto}", "/connect?t={target}&p={ipproto}"])
+def test_paths_may_use_the_two_template_variables(path):
+    validate_masque(masque_profile(path=path))
+
+
+@pytest.mark.parametrize("path", ["/{other}", "/a{b", "/a}b", "/{target}{"])
+def test_any_other_braces_in_the_path_are_rejected(path):
+    with pytest.raises(ProfileValidationError, match="only the variables"):
+        validate_masque(masque_profile(path=path))
+
+
+@pytest.mark.parametrize("host", ["h.example.com", "h.example.com:8443", "[2001:db8::1]:443", "10.0.0.1"])
+def test_plain_hosts_are_fine(host):
+    validate_masque(masque_profile(host=host))
+
+
+@pytest.mark.parametrize("host", ["h.example.com/path", "h.example.com?x=1", "u@h.example.com", "h example.com", "h.example.com#f"])
+def test_a_host_that_is_not_a_bare_authority_is_rejected(host):
+    with pytest.raises(ProfileValidationError, match='invalid "host"'):
+        validate_masque(masque_profile(host=host))
+
+
+@pytest.mark.parametrize("name", ["X-Token", "x_custom.header", "Accept", "X-1"])
+def test_ordinary_header_names_are_fine(name):
+    validate_masque(masque_profile(headers={name: "v"}))
+
+
+@pytest.mark.parametrize(("name", "value"), [("Bad Name", "v"), ("X:Y", "v"), ("", "v"), ("X-A", "line1\r\nInjected: 1"), ("X-A", "nul\x00")])
+def test_invalid_header_names_or_values_are_rejected(name, value):
+    with pytest.raises(ProfileValidationError, match="invalid header"):
+        validate_masque(masque_profile(headers={name: value}))
+
+
+def test_a_password_without_a_user_is_not_rejected_because_xray_does_not_reject_it():
+    p = masque_profile()
+    p.password = "only-a-pass"
+    validate_masque(p)
