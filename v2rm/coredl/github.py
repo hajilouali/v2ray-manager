@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import platform
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -60,17 +62,35 @@ class Release:
         return None
 
 
+def _api_headers() -> dict[str, str]:
+    """Anonymous GitHub API use is limited to 60 requests an hour *per IP address*, which a
+    shared server or NAT can use up without v2rm doing much; a token (the one `gh` and CI
+    already use) gets 5000. It is only ever sent to the API, never with asset downloads."""
+    headers = {"User-Agent": DEFAULT_USER_AGENT, "Accept": "application/vnd.github+json"}
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token.strip()}"
+    return headers
+
+
+def _rate_limit_message(resp: Any) -> str:
+    message = "GitHub API rate limit exceeded (60 requests an hour per IP address without a token)."
+    reset = (getattr(resp, "headers", None) or {}).get("X-RateLimit-Reset")
+    try:
+        minutes = max(0, int(reset) - int(time.time())) // 60 + 1
+        message += f" It resets in about {minutes} min."
+    except (TypeError, ValueError):
+        pass
+    return message + " Try again then, or set GITHUB_TOKEN to use your own quota."
+
+
 def _get_json(url: str) -> Any:
     try:
-        resp = requests.get(
-            url,
-            headers={"User-Agent": DEFAULT_USER_AGENT, "Accept": "application/vnd.github+json"},
-            timeout=15,
-        )
+        resp = requests.get(url, headers=_api_headers(), timeout=15)
     except requests.RequestException as exc:
         raise DownloadError(f"Could not reach GitHub API: {exc}") from exc
     if resp.status_code == 403 and "rate limit" in resp.text.lower():
-        raise DownloadError("GitHub API rate limit exceeded. Try again later.")
+        raise DownloadError(_rate_limit_message(resp))
     if resp.status_code == 404:
         raise DownloadError(f"Not found: {url}")
     if resp.status_code != 200:

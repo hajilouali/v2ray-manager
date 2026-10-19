@@ -45,6 +45,8 @@ v2rm core install singbox
 
 Raw configs, MASQUE and several link options need a recent Xray-core. Xray-core currently publishes its newest builds only as GitHub *pre-releases*, which v2rm's installer skips unless you ask for them, so run `v2rm core update xray --pre` (a plain `core update xray` would give you the older stable release), then `v2rm doctor` to see exactly what your Xray supports.
 
+`core install` and `core update` ask GitHub's API for the release, which allows only 60 anonymous requests an hour per IP address; a shared server or NAT can use that up. If you see "rate limit exceeded", wait for the reset time it prints, or export `GITHUB_TOKEN` (any token, even with no scopes, raises the limit to 5000 an hour). The token is only sent to the API, never with downloads.
+
 ## Quick start
 
 ```bash
