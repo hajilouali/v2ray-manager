@@ -5,9 +5,17 @@ from pathlib import Path
 
 from v2rm.errors import AmbiguousReferenceError, ProfileNotFoundError
 from v2rm.models.profile import Profile
+from v2rm.parsers.migrate import upgrade_profile
 from v2rm.store import paths
 from v2rm.store.json_store import atomic_write_json, load_json
 from v2rm.store.lock import store_lock
+
+
+def _to_profile(item: dict) -> Profile:
+    # Profiles saved by an older version are upgraded in memory on every
+    # load (see v2rm.parsers.migrate); they're persisted at schema 2 the next
+    # time they're written.
+    return upgrade_profile(Profile.from_dict(item))
 
 
 class ProfileStore:
@@ -23,7 +31,7 @@ class ProfileStore:
         atomic_write_json(self._path, {"profiles": items})
 
     def list(self) -> list[Profile]:
-        return [Profile.from_dict(item) for item in self._load_raw()]
+        return [_to_profile(item) for item in self._load_raw()]
 
     def list_by_subscription(self, subscription_id: str) -> list[Profile]:
         return [p for p in self.list() if p.subscription_id == subscription_id]
@@ -31,7 +39,7 @@ class ProfileStore:
     def get(self, profile_id: str) -> Profile | None:
         for item in self._load_raw():
             if item["id"] == profile_id:
-                return Profile.from_dict(item)
+                return _to_profile(item)
         return None
 
     def resolve(self, ref: str) -> Profile:

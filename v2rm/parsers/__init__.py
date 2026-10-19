@@ -3,7 +3,7 @@ from __future__ import annotations
 from v2rm.errors import ParseError
 from v2rm.models.enums import Protocol
 from v2rm.models.profile import Profile
-from v2rm.parsers import hysteria2, shadowsocks, trojan, tuic, vless, vmess
+from v2rm.parsers import hysteria2, masque, shadowsocks, trojan, tuic, vless, vmess
 
 _SCHEME_PARSERS = {
     "vmess": vmess.parse,
@@ -13,6 +13,7 @@ _SCHEME_PARSERS = {
     "hysteria2": hysteria2.parse,
     "hy2": hysteria2.parse,
     "tuic": tuic.parse,
+    "masque": masque.parse,
 }
 
 _PROTOCOL_ENCODERS = {
@@ -22,6 +23,7 @@ _PROTOCOL_ENCODERS = {
     Protocol.SHADOWSOCKS: shadowsocks.to_link,
     Protocol.HYSTERIA2: hysteria2.to_link,
     Protocol.TUIC: tuic.to_link,
+    Protocol.MASQUE: masque.to_link,
 }
 
 SUPPORTED_SCHEMES = tuple(_SCHEME_PARSERS)
@@ -48,18 +50,25 @@ def parse_links(text: str) -> tuple[list[Profile], list[tuple[str, str]]]:
     """
     profiles: list[Profile] = []
     errors: list[tuple[str, str]] = []
-    for line in text.splitlines():
+    for line in text.lstrip("﻿").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         try:
             profiles.append(parse_link(line))
-        except ParseError as exc:
+        except (ParseError, ValueError, KeyError, TypeError) as exc:
+            # One malformed link in a several-hundred-link subscription must
+            # be reported, not abort the whole import.
             errors.append((line, str(exc)))
     return profiles, errors
 
 
 def to_link(profile: Profile) -> str:
+    if profile.protocol == Protocol.RAW_XRAY:
+        raise ParseError(
+            "Raw Xray profiles are complete configs, not a server, so they have no share link. "
+            "Use `v2rm profile show <id> --json` to print the config instead."
+        )
     encoder = _PROTOCOL_ENCODERS.get(profile.protocol)
     if encoder is None:
         raise ParseError(f"No link encoder for protocol '{profile.protocol.value}'")

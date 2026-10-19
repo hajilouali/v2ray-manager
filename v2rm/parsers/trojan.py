@@ -28,8 +28,10 @@ def parse(link: str) -> Profile:
         raw_link=link,
         password=password,
         flow=q.get("flow", ""),
+        packet_encoding=links.packet_encoding_of(q),
         transport=links.parse_transport(q),
         tls=links.parse_tls(q, default_security=SecurityKind.TLS),
+        extra=links.collect_extra(q),
     )
 
 
@@ -39,6 +41,12 @@ def to_link(profile: Profile) -> str:
     params.update(links.tls_query_params(profile.tls))
     if profile.flow:
         params["flow"] = profile.flow
+    if profile.packet_encoding:
+        params["packetEncoding"] = profile.packet_encoding
+    if profile.extra.get("header_type"):
+        params["headerType"] = profile.extra["header_type"]
+    if profile.extra.get("fragment"):
+        params["fragment"] = profile.extra["fragment"]
     return links.build_link(
         SCHEME, quote(profile.password, safe=""), profile.server, profile.port, params, profile.name
     )

@@ -33,6 +33,23 @@ class UnsupportedProtocolError(V2rmError):
     """Raised when a profile's protocol isn't supported by the selected engine."""
 
 
+class UnsupportedFeatureError(UnsupportedProtocolError):
+    """The protocol is supported, but one of the profile's *options* (a
+    transport, finalmask, ECH, an encryption mode, ...) isn't on this engine."""
+
+
+class ProfileValidationError(V2rmError):
+    """A profile's fields are individually fine but invalid together/for the engine."""
+
+
+class CoreTooOldError(V2rmError):
+    """The installed core is older (or newer) than a profile's version requirement."""
+
+
+class ConfigTestError(V2rmError):
+    """`<core> run -test` rejected a generated config."""
+
+
 class NotConnectedError(V2rmError):
     pass
 
