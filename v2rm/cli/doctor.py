@@ -10,7 +10,7 @@ from rich.markup import escape
 from v2rm.coredl.install import current_version
 from v2rm.errors import V2rmError
 from v2rm.engines.probe import probe_xray_features
-from v2rm.engines.versioning import compare_versions, raw_version_requirement
+from v2rm.engines.versioning import UPDATE_XRAY_HINT, compare_versions, raw_version_requirement
 from v2rm.net import addresses
 from v2rm.net.exposure import listen_warning, ufw_commands
 from v2rm.net.firewall import BLOCKED, INACTIVE, OPEN, RESTRICTED, check_firewall
@@ -58,7 +58,7 @@ def _xray_checks() -> list[Check]:
             if probe.supported:
                 checks.append(Check(True, f"Xray {probe.name}: supported ({probe.detail})"))
             elif probe.supported is False:
-                checks.append(Check(False, f"Xray {probe.name}: not supported -- {probe.detail}", ["Run `v2rm core update xray`."]))
+                checks.append(Check(False, f"Xray {probe.name}: not supported -- {probe.detail}", [UPDATE_XRAY_HINT]))
             else:
                 checks.append(Check(False, f"Xray {probe.name}: {probe.detail}"))
 
@@ -96,7 +96,7 @@ def _xray_checks() -> list[Check]:
             Check(
                 False,
                 f"{len(too_new)} profile(s) need a newer Xray-core than {version}: {shown}{more}",
-                ["Run `v2rm core update xray`."],
+                [UPDATE_XRAY_HINT],
             )
         )
     return checks

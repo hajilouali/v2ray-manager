@@ -5,6 +5,7 @@ from rich.console import Console
 from rich.table import Table
 
 from v2rm.coredl import install as installer
+from v2rm.engines.versioning import compare_versions
 from v2rm.errors import DownloadError, V2rmError
 from v2rm.models.enums import EngineKind
 from v2rm.store.state import AppStateStore
@@ -43,38 +44,64 @@ def list_engines() -> None:
     console.print(table)
 
 
+_PRE_HELP = (
+    "Include pre-releases. Xray-core currently publishes its newest builds only as "
+    "pre-releases, so without this you get an older stable one."
+)
+
+
 @core_app.command("install")
 def install_engine(
     engine: str = typer.Argument(..., help="xray or singbox"),
     version: str | None = typer.Option(
-        None, "--version", help="Specific release tag, e.g. v26.3.27. Defaults to latest."
+        None, "--version", help="Specific release tag, e.g. v26.3.27 (pre-releases work too). Defaults to latest."
     ),
+    pre: bool = typer.Option(False, "--pre", help=_PRE_HELP),
 ) -> None:
     """Download, verify, and install an engine binary."""
     _check_engine(engine)
+    if version and pre:
+        raise V2rmError("Use either --version or --pre, not both.")
     console.print(f"Fetching {engine} release info...")
     try:
-        tag = installer.install_xray(version) if engine == "xray" else installer.install_singbox(version)
+        release = installer.fetch_release_for(engine, version, pre)
+        kind = " (pre-release)" if release.prerelease else ""
+        console.print(f"Release: {release.tag}{kind}")
+        tag = installer.install_engine(engine, release, progress=console.print)
     except DownloadError as exc:
         raise V2rmError(str(exc)) from exc
     console.print(f"[green]Installed[/green] {engine} {tag}")
 
 
 @core_app.command("update")
-def update_engine(engine: str = typer.Argument(..., help="xray or singbox")) -> None:
-    """Install the latest release if it's newer than what's currently active."""
+def update_engine(
+    engine: str = typer.Argument(..., help="xray or singbox"),
+    pre: bool = typer.Option(False, "--pre", help=_PRE_HELP),
+) -> None:
+    """Install the latest release if it's newer than what's currently active (never downgrades)."""
     _check_engine(engine)
     current = installer.current_version(engine)
-    console.print(f"Checking latest {engine} release...")
+    console.print(f"Checking latest {engine} {'release (pre-releases included)' if pre else 'stable release'}...")
     try:
-        tag = installer.install_xray(None) if engine == "xray" else installer.install_singbox(None)
+        release = installer.fetch_release_for(engine, None, pre)
     except DownloadError as exc:
         raise V2rmError(str(exc)) from exc
+    tag = release.tag
 
     if tag == current:
         console.print(f"[dim]{engine} is already up to date ({tag}).[/dim]")
-    else:
-        console.print(f"[green]Updated[/green] {engine} {current or '(none)'} -> {tag}")
+        return
+    if current and compare_versions(tag, current) < 0:
+        console.print(f"[dim]{engine} {current} is newer than the latest {'release' if pre else 'stable release'} ({tag}); nothing to do.[/dim]")
+        if not pre:
+            console.print("[dim]Add --pre to include pre-releases.[/dim]")
+        return
+
+    try:
+        installer.install_engine(engine, release, progress=console.print)
+    except DownloadError as exc:
+        raise V2rmError(str(exc)) from exc
+    console.print(f"[green]Updated[/green] {engine} {current or '(none)'} -> {tag}")
 
 
 @core_app.command("use")

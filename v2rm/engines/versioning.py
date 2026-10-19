@@ -14,6 +14,10 @@ from v2rm.models.profile import Profile
 
 _LEADING_DIGITS = re.compile(r"\d+")
 
+# Xray-core currently publishes its newest builds only as GitHub pre-releases, and v2rm's
+# installer skips those unless asked, so a bare `core update xray` would not help here.
+UPDATE_XRAY_HINT = "Run `v2rm core update xray --pre` (Xray-core publishes its newest builds as pre-releases)."
+
 
 def parse_version(text: str) -> tuple[int, ...]:
     """'v26.10.17' -> (26, 10, 17). Stops at the first component without a
@@ -61,7 +65,7 @@ def check_core_requirements(profile: Profile, installed: str | None) -> None:
     if minimum and compare_versions(installed, minimum) < 0:
         raise CoreTooOldError(
             f"'{profile.name}' needs Xray-core >= {minimum}, but {installed} is installed. "
-            "Run `v2rm core update xray`."
+            + UPDATE_XRAY_HINT
         )
     if maximum and compare_versions(installed, maximum) > 0:
         raise CoreTooOldError(

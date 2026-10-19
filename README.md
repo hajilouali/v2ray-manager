@@ -43,7 +43,7 @@ v2rm core install xray
 v2rm core install singbox
 ```
 
-Raw configs, MASQUE and several link options need a recent Xray-core. Run `v2rm core update xray`, then `v2rm doctor` to see exactly what your Xray supports.
+Raw configs, MASQUE and several link options need a recent Xray-core. Xray-core currently publishes its newest builds only as GitHub *pre-releases*, which v2rm's installer skips unless you ask for them, so run `v2rm core update xray --pre` (a plain `core update xray` would give you the older stable release), then `v2rm doctor` to see exactly what your Xray supports.
 
 ## Quick start
 
@@ -115,8 +115,8 @@ Prefer a menu over remembering flags? Just run `v2rm` with no arguments.
 | `v2rm route edit` | Edit the custom routing rules file |
 | `v2rm route update-data [--force]` | Refresh Xray-core's GeoIP/GeoSite data |
 | `v2rm core list` | List installed engine versions |
-| `v2rm core install <xray\|singbox> [--version V]` | Download and install an engine |
-| `v2rm core update <xray\|singbox>` | Update to the latest release |
+| `v2rm core install <xray\|singbox> [--version V \| --pre]` | Download and install an engine (`--pre`: newest release even if it is a pre-release) |
+| `v2rm core update <xray\|singbox> [--pre]` | Update to the latest release; never downgrades (`--pre` includes pre-releases) |
 | `v2rm core use <xray\|singbox>` | Set the default engine |
 | `v2rm core remove <xray\|singbox> [--version V] [--all]` | Remove installed engine version(s) |
 | `v2rm port show` | Show the listen address, ports and whether a login is required |
@@ -167,7 +167,7 @@ The name defaults to the config's `"remarks"`.
 - Listeners that don't come from `inbounds` — `metrics.listen` and `api.listen` — are also left as written, but `connect` and `test` name them in a note, because they sit outside the address you chose.
 - **Routing presets don't apply.** A raw profile carries its own routing; `v2rm route show`, `route set`, `status` and `connect` say so instead of implying a preset is in effect.
 - **Always Xray-core**, whatever `v2rm core use` says. If sing-box is your default, v2rm switches to Xray for this profile and says so in one line (your default is not changed).
-- **Version check.** If the config declares `"version": {"min": …, "max": …}`, v2rm compares it numerically with the installed Xray (`26.6.27` and `v26.10.17` both work) and, if it doesn't fit, tells you to run `v2rm core update xray`.
+- **Version check.** If the config declares `"version": {"min": …, "max": …}`, v2rm compares it numerically with the installed Xray (`26.6.27` and `v26.10.17` both work) and, if it doesn't fit, tells you to run `v2rm core update xray --pre`.
 - **Pre-flight.** Before starting — in `connect` and in `test` — v2rm runs `xray run -test -c <file>` with `XRAY_LOCATION_ASSET` pointing at its geo data and shows Xray's own error output, plus a hint for the usual causes: an unknown `geosite:`/`geoip:` tag (run `v2rm route update-data --force`) or a core that is too old.
 - `v2rm test` works on raw profiles like any other, with the same rewrite on throwaway ports.
 
@@ -195,7 +195,7 @@ v2rm add masque --server masque.example.com --port 443 --sni front.example.com \
 | `--fp` | TLS fingerprint to imitate |
 | `--name` | Display name (default `host:port`) |
 
-v2rm checks the same rules Xray-core's own MASQUE config does when you add the profile, so mistakes show up immediately with a readable message, not as an engine start-up failure. If your Xray is too old to know MASQUE, the pre-flight says so and tells you to run `v2rm core update xray` (`v2rm doctor` reports it too).
+v2rm checks the same rules Xray-core's own MASQUE config does when you add the profile, so mistakes show up immediately with a readable message, not as an engine start-up failure. If your Xray is too old to know MASQUE, the pre-flight says so and tells you to run `v2rm core update xray --pre` (`v2rm doctor` reports it too).
 
 **The `masque://` link is v2rm's own convention, not an ecosystem standard** — no share-link format for MASQUE exists elsewhere. v2rm emits and parses:
 

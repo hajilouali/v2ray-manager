@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from v2rm.engines.versioning import UPDATE_XRAY_HINT
 from v2rm.engines.xray.generate import generate_config
 from v2rm.errors import ConfigTestError
 from v2rm.models.enums import Protocol, SecurityKind, TransportKind
@@ -118,7 +119,7 @@ def probe_finalmask(
         "finalmask",
         None,
         "unclear -- Xray accepted an invalid mask type as well, so it probably ignores `finalmask` "
-        "(an older core); `v2rm core update xray` if links using it fail",
+        "(an older core); if links using it fail, " + UPDATE_XRAY_HINT[0].lower() + UPDATE_XRAY_HINT[1:],
     )
 
 

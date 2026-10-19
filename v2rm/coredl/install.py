@@ -7,6 +7,7 @@ import shutil
 import stat
 import tarfile
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 import requests
@@ -143,13 +144,27 @@ def remove_version(engine: str, version: str) -> None:
     shutil.rmtree(version_dir)
 
 
-def install_xray(version: str | None = None) -> str:
-    release = fetch_xray_release(version)
+def _announce(progress: Callable[[str], None] | None, asset: ReleaseAsset) -> None:
+    """Say what is about to be downloaded -- on a slow link that's the only sign of life for minutes."""
+    if progress is None:
+        return
+    size = f" ({asset.size / 1_000_000:.1f} MB)" if asset.size else ""
+    progress(f"Downloading {asset.name}{size} -- this can take a while on a slow connection...")
+
+
+def install_xray(
+    version: str | None = None,
+    include_prerelease: bool = False,
+    release: Release | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> str:
+    release = release or fetch_xray_release(version, include_prerelease)
     asset_name = xray_asset_name()
     asset = release.find(asset_name)
     if asset is None:
         raise DownloadError(f"Release {release.tag} has no asset named '{asset_name}'")
 
+    _announce(progress, asset)
     data = _download(asset.download_url)
     if not _verify_digest_field(data, asset):
         _verify_xray_dgst(data, asset, release)
@@ -160,13 +175,19 @@ def install_xray(version: str | None = None) -> str:
     return release.tag
 
 
-def install_singbox(version: str | None = None) -> str:
-    release = fetch_singbox_release(version)
+def install_singbox(
+    version: str | None = None,
+    include_prerelease: bool = False,
+    release: Release | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> str:
+    release = release or fetch_singbox_release(version, include_prerelease)
     asset_name = singbox_asset_name(release.tag)
     asset = release.find(asset_name)
     if asset is None:
         raise DownloadError(f"Release {release.tag} has no asset named '{asset_name}'")
 
+    _announce(progress, asset)
     data = _download(asset.download_url)
     _verify_digest_field(data, asset)
 
@@ -174,3 +195,21 @@ def install_singbox(version: str | None = None) -> str:
     _install_binary(ENGINE_SINGBOX, release.tag, binary_bytes)
     use_version(ENGINE_SINGBOX, release.tag)
     return release.tag
+
+
+def fetch_release_for(engine: str, version: str | None = None, include_prerelease: bool = False) -> Release:
+    """Release info for an engine, without downloading anything."""
+    if engine == ENGINE_XRAY:
+        return fetch_xray_release(version, include_prerelease)
+    return fetch_singbox_release(version, include_prerelease)
+
+
+def install_engine(
+    engine: str,
+    release: Release,
+    progress: Callable[[str], None] | None = None,
+) -> str:
+    """Install the given (already fetched) release of an engine."""
+    if engine == ENGINE_XRAY:
+        return install_xray(release=release, progress=progress)
+    return install_singbox(release=release, progress=progress)

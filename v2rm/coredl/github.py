@@ -7,7 +7,13 @@ from typing import Any
 import requests
 
 from v2rm.constants import DEFAULT_USER_AGENT, GITHUB_API, SINGBOX_REPO, XRAY_REPO
+from v2rm.engines.versioning import parse_version
 from v2rm.errors import DownloadError
+
+# How many of the newest releases to look at when pre-releases are wanted. GitHub's
+# "latest" endpoint skips them, and Xray-core, for one, has published only
+# pre-releases since early 2026. Release notes make each entry large, so keep it small.
+PRERELEASE_WINDOW = 6
 
 # CPU architecture (platform.machine(), lowercased) -> the suffix each
 # project uses in its own release asset names.
@@ -38,12 +44,14 @@ class ReleaseAsset:
     name: str
     download_url: str
     digest: str | None = None  # "sha256:..." -- populated by GitHub for some repos/releases
+    size: int | None = None  # bytes, as GitHub reports them
 
 
 @dataclass
 class Release:
     tag: str
     assets: list[ReleaseAsset] = field(default_factory=list)
+    prerelease: bool = False
 
     def find(self, name: str) -> ReleaseAsset | None:
         for a in self.assets:
@@ -70,22 +78,47 @@ def _get_json(url: str) -> Any:
     return resp.json()
 
 
-def fetch_release(repo: str, version: str | None = None) -> Release:
-    path = f"tags/{version}" if version else "latest"
-    data = _get_json(f"{GITHUB_API}/repos/{repo}/releases/{path}")
+def _release_from(data: dict[str, Any]) -> Release:
     assets = [
-        ReleaseAsset(name=a["name"], download_url=a["browser_download_url"], digest=a.get("digest"))
+        ReleaseAsset(
+            name=a["name"],
+            download_url=a["browser_download_url"],
+            digest=a.get("digest"),
+            size=a.get("size") if isinstance(a.get("size"), int) else None,
+        )
         for a in data.get("assets", [])
     ]
-    return Release(tag=data["tag_name"], assets=assets)
+    return Release(tag=data["tag_name"], assets=assets, prerelease=bool(data.get("prerelease")))
 
 
-def fetch_xray_release(version: str | None = None) -> Release:
-    return fetch_release(XRAY_REPO, version)
+def newest_release(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """The release with the highest version number among `items` (drafts
+    skipped). A stable release outranks a pre-release of the same number."""
+    candidates = [r for r in items if isinstance(r, dict) and not r.get("draft") and r.get("tag_name")]
+    if not candidates:
+        raise DownloadError("GitHub lists no releases for this project")
+    return max(candidates, key=lambda r: (parse_version(str(r["tag_name"])), not r.get("prerelease")))
 
 
-def fetch_singbox_release(version: str | None = None) -> Release:
-    return fetch_release(SINGBOX_REPO, version)
+def fetch_release(repo: str, version: str | None = None, include_prerelease: bool = False) -> Release:
+    """One release: a specific tag (pre-releases included), the newest release
+    of any kind (`include_prerelease`), or -- the default -- GitHub's "latest",
+    which never returns a pre-release."""
+    if version:
+        data = _get_json(f"{GITHUB_API}/repos/{repo}/releases/tags/{version}")
+    elif include_prerelease:
+        data = newest_release(_get_json(f"{GITHUB_API}/repos/{repo}/releases?per_page={PRERELEASE_WINDOW}"))
+    else:
+        data = _get_json(f"{GITHUB_API}/repos/{repo}/releases/latest")
+    return _release_from(data)
+
+
+def fetch_xray_release(version: str | None = None, include_prerelease: bool = False) -> Release:
+    return fetch_release(XRAY_REPO, version, include_prerelease)
+
+
+def fetch_singbox_release(version: str | None = None, include_prerelease: bool = False) -> Release:
+    return fetch_release(SINGBOX_REPO, version, include_prerelease)
 
 
 def xray_asset_name(machine: str | None = None) -> str:

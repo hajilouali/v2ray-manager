@@ -14,6 +14,7 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
+from v2rm.engines.versioning import UPDATE_XRAY_HINT
 from v2rm.errors import ConfigTestError
 
 _GEO_RE = re.compile(r"geosite|geoip|geodata", re.IGNORECASE)
@@ -41,7 +42,7 @@ def explain_xray_failure(output: str) -> str:
             "isn't found, this config expects different geo data than the default."
         )
     if looks_too_old(output):
-        hints.append("Your Xray-core looks too old for this config. Run `v2rm core update xray`.")
+        hints.append(f"Your Xray-core looks too old for this config. {UPDATE_XRAY_HINT}")
     if _REMOVED_RE.search(output):
         hints.append(
             "This Xray-core release has removed a feature the config uses; the config needs "
