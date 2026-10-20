@@ -220,6 +220,11 @@ def show_profile(
 
         # A raw profile has no link: to_link says so and points at --json.
         typer.echo(to_link(p))
+        if p.is_aether:
+            from v2rm.parsers.aether import link_omissions
+
+            for item in link_omissions(p):
+                typer.echo(f"Note: left out of the link: {item}", err=True)
         return
 
     if as_json:

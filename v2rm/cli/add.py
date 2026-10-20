@@ -124,7 +124,7 @@ def add_masque_profile(
 def add_command(
     link: str | None = typer.Argument(
         None,
-        help="A share link (vmess://, vless://, trojan://, ss://, hysteria2://, tuic://, masque://). "
+        help="A share link (vmess://, vless://, trojan://, ss://, hysteria2://, tuic://, masque://, aether://). "
         "Use '-' to read one or more links (one per line) from stdin.",
     ),
     file: Path | None = typer.Option(

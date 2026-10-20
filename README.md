@@ -292,6 +292,10 @@ The name comes from the destination the client gave, **or — when the client on
 
 `--upstream socks5://127.0.0.1:1080` (or `http://user:pass@host:8080`) makes Aether dial out through a proxy already running on this machine — another VPN client, a Tor client, an Xray you run yourself. A SOCKS5 proxy carries UDP too; an HTTP proxy carries TCP only, so v2rm then uses the HTTP/2 carrier by itself (and refuses `--h3`, `wg` and `gool-classic`, which need UDP). The password is handed to Aether through its environment, never on a command line.
 
+### Sharing a setup: the `aether://` link
+
+`v2rm profile show <id> --link` prints an `aether://MODE?param=value&…#name` link and `v2rm add "aether://…"` (or a line in a list of links) adds it again, so a setup that works on your network — `aether://masque?transport=h2&fragment=1&noize=gfw#h2-fragment` — can be passed around like a `vless://` link. Only what differs from the defaults is written, and nothing secret: the extra `AETHER_*` settings and an upstream proxy that has a login are left out (v2rm says so). The link format is v2rm's own convention, like `masque://`.
+
 ### How v2rm runs it
 
 - With the `global` route preset and no login, Aether binds your listen address and ports itself (`--http-proxy` gives the HTTP port): one program, no Xray needed.

@@ -12,7 +12,7 @@ import ipaddress
 import re
 from typing import NoReturn
 
-from v2rm.errors import ProfileValidationError
+from v2rm.errors import ParseError, ProfileValidationError
 from v2rm.models.aether import (
     IP_VERSIONS,
     LOG_LEVELS,
@@ -373,3 +373,162 @@ def build_profile(settings: AetherSettings, name: str = "") -> Profile:
         aether=settings,
     )
     return profile
+
+
+# ---- the aether:// link ------------------------------------------------------------------------------
+#
+# `aether://MODE?param=value&...#name` -- v2rm's own convention (there is no share-link format for
+# Aether), so a working setup can be passed around the way vless:// and masque:// links are. Only
+# what differs from the defaults is written. Never written, because a link gets pasted into chats:
+# the extra `env` settings (they may hold Zero Trust secrets) and an upstream proxy that has a login.
+
+SCHEME = "aether"
+
+# link parameter -> AetherSettings field
+LINK_FIELDS = {
+    "transport": "transport",
+    "outer": "outer",
+    "inner": "inner",
+    "h2_peer": "h2_peer",
+    "scan": "scan",
+    "ip": "ip",
+    "noize": "noize",
+    "fragment": "fragment",
+    "fragment_size": "fragment_size",
+    "fragment_delay": "fragment_delay",
+    "sni": "sni",
+    "ech": "ech",
+    "ech_dns": "ech_dns",
+    "ech_domain": "ech_domain",
+    "tls_ciphers": "tls_ciphers",
+    "tls_groups": "tls_groups",
+    "disable_grease": "disable_grease",
+    "quic_v2": "quic_v2",
+    "quick_reconnect": "quick_reconnect",
+    "reconnect_secs": "reconnect_secs",
+    "startup_secs": "startup_secs",
+    "validate_secs": "validate_secs",
+    "no_data_check": "no_data_check",
+    "keepalive": "keepalive",
+    "dns": "dns",
+    "upstream": "upstream",
+    "block": "route_block",
+    "direct": "route_direct",
+    "sniff": "route_sniff",
+    "sniff_ms": "route_sniff_ms",
+    "wait": "wait_secs",
+    "exit_loc": "exit_loc",
+    "exit_loc_secs": "exit_loc_secs",
+    "mark": "mark",
+    "api_address": "api_address",
+    "perf": "perf",
+    "stats": "stats",
+    "log_level": "log_level",
+}
+
+
+def _link_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, list):
+        return ",".join(str(v) for v in value)
+    return str(value)
+
+
+def link_omissions(profile: Profile) -> list[str]:
+    """What `to_link` leaves out on purpose."""
+    settings = profile.aether
+    left_out: list[str] = []
+    if settings is None:
+        return left_out
+    if settings.env:
+        left_out.append(f"{len(settings.env)} extra AETHER_* setting(s) (they may hold secrets)")
+    if settings.upstream and parse_proxy_url(settings.upstream).has_credentials:
+        left_out.append("the upstream proxy (it has a login)")
+    return left_out
+
+
+def to_link(profile: Profile) -> str:
+    from urllib.parse import quote
+
+    settings = profile.aether
+    if settings is None:
+        raise ProfileValidationError("Not an Aether profile")
+    defaults = AetherSettings()
+    private_upstream = bool(settings.upstream) and parse_proxy_url(settings.upstream).has_credentials
+
+    params: list[str] = []
+    for param, field_name in LINK_FIELDS.items():
+        value = getattr(settings, field_name)
+        if value == getattr(defaults, field_name) or value in (None, "", []):
+            continue
+        if field_name == "upstream" and private_upstream:
+            continue
+        params.append(f"{param}={quote(_link_value(value), safe=',:/-.@[]')}")
+
+    query = f"?{'&'.join(params)}" if params else ""
+    name = quote(profile.name, safe="")
+    return f"{SCHEME}://{settings.mode.value}{query}#{name}"
+
+
+def _link_bool(value: str, param: str) -> bool:
+    lowered = value.strip().lower()
+    if lowered in ("1", "true", "yes", "on"):
+        return True
+    if lowered in ("0", "false", "no", "off"):
+        return False
+    raise ParseError(f"aether:// link: '{param}' must be 1 or 0, not '{value}'")
+
+
+def parse(link: str) -> Profile:
+    from urllib.parse import unquote
+
+    from v2rm.parsers import links
+
+    if not link.strip().lower().startswith(f"{SCHEME}://"):
+        raise ParseError("Not an aether:// link")
+    parsed = links.split_uri(link)
+    query = links.query_dict(parsed)
+
+    mode_text = (parsed.netloc or "").strip().lower()
+    try:
+        mode = AetherMode(mode_text)
+    except ValueError:
+        raise ParseError(
+            f"aether:// link: unknown mode '{mode_text}' (use {', '.join(m.value for m in AetherMode)})"
+        ) from None
+
+    unknown = sorted(set(query) - set(LINK_FIELDS))
+    if unknown:
+        raise ParseError(
+            f"aether:// link: unknown parameter(s) {', '.join(unknown)} -- a typo, or a link from a newer v2rm"
+        )
+
+    defaults = AetherSettings()
+    values: dict[str, object] = {"mode": mode}
+    for param, raw in query.items():
+        field_name = LINK_FIELDS[param]
+        default = getattr(defaults, field_name)
+        if isinstance(default, bool):
+            values[field_name] = _link_bool(raw, param)
+        elif isinstance(default, list):
+            values[field_name] = [item.strip() for item in raw.split(",") if item.strip()]
+        elif field_name.endswith("_secs") or field_name in ("keepalive", "route_sniff_ms"):
+            try:
+                values[field_name] = int(raw)
+            except ValueError:
+                raise ParseError(f"aether:// link: '{param}' must be a whole number, not '{raw}'") from None
+        else:
+            values[field_name] = unquote(raw)
+
+    settings = AetherSettings(**values)
+    try:
+        validate_settings(settings)
+    except ProfileValidationError as exc:
+        raise ParseError(str(exc)) from exc
+    return Profile(
+        name=links.remark(parsed, settings.summary()),
+        protocol=Protocol.AETHER,
+        aether=settings,
+        raw_link=link.strip(),
+    )

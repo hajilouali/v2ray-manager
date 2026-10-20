@@ -3,9 +3,10 @@ from __future__ import annotations
 from v2rm.errors import ParseError
 from v2rm.models.enums import Protocol
 from v2rm.models.profile import Profile
-from v2rm.parsers import hysteria2, masque, shadowsocks, trojan, tuic, vless, vmess
+from v2rm.parsers import aether, hysteria2, masque, shadowsocks, trojan, tuic, vless, vmess
 
 _SCHEME_PARSERS = {
+    "aether": aether.parse,
     "vmess": vmess.parse,
     "vless": vless.parse,
     "trojan": trojan.parse,
@@ -24,6 +25,7 @@ _PROTOCOL_ENCODERS = {
     Protocol.HYSTERIA2: hysteria2.to_link,
     Protocol.TUIC: tuic.to_link,
     Protocol.MASQUE: masque.to_link,
+    Protocol.AETHER: aether.to_link,
 }
 
 SUPPORTED_SCHEMES = tuple(_SCHEME_PARSERS)
@@ -68,6 +70,11 @@ def to_link(profile: Profile) -> str:
         raise ParseError(
             "Raw Xray profiles are complete configs, not a server, so they have no share link. "
             "Use `v2rm profile show <id> --json` to print the config instead."
+        )
+    if profile.protocol == Protocol.CHAIN:
+        raise ParseError(
+            "A chain refers to profiles on this machine by id, so it has no share link. "
+            "Share the profiles it uses, or use `v2rm export` / `v2rm import` to move everything."
         )
     encoder = _PROTOCOL_ENCODERS.get(profile.protocol)
     if encoder is None:
