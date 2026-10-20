@@ -457,7 +457,7 @@ def spawn(argv: list[str], env: dict[str, str], cwd: Path | None, log_path: Path
     if os.name == "posix":
         kwargs["start_new_session"] = True
     with log_path.open("wb") as log_fh:
-        return subprocess.Popen(argv, stdout=log_fh, **kwargs)
+        return supervisor.track(subprocess.Popen(argv, stdout=log_fh, **kwargs))
 
 
 def socks5_ready(host: str, port: int, timeout: float = 1.0) -> bool:

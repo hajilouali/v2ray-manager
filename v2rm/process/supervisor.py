@@ -42,16 +42,41 @@ def _read_pid() -> int | None:
         return None
 
 
+# Programs this process started. A child that has exited stays a zombie until its parent collects
+# it, and a zombie still answers `kill(pid, 0)`: without this a long-lived v2rm (the menu) that
+# connects and then disconnects would keep seeing the program it just stopped as alive.
+_children: dict[int, subprocess.Popen] = {}
+
+
+def track(proc: subprocess.Popen) -> subprocess.Popen:
+    _children[proc.pid] = proc
+    return proc
+
+
+def _is_zombie(pid: int) -> bool:
+    """Whether the process has exited but not been collected yet (Linux: state Z in /proc)."""
+    try:
+        text = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    fields = text.rpartition(")")[2].split()
+    return bool(fields) and fields[0] == "Z"
+
+
 def _is_alive(pid: int) -> bool:
     if os.name == "nt":
         return _is_alive_windows(pid)
+    child = _children.get(pid)
+    if child is not None and child.poll() is not None:  # poll() collects it
+        _children.pop(pid, None)
+        return False
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
-    return True
+    return not _is_zombie(pid)
 
 
 def _is_alive_windows(pid: int) -> bool:
@@ -261,7 +286,7 @@ def connect(
         popen_kwargs: dict[str, Any] = {"stdout": log_fh, "stderr": subprocess.STDOUT, "env": env}
         if os.name == "posix":
             popen_kwargs["start_new_session"] = True
-        proc = subprocess.Popen([str(binary), "run", "-c", str(config_path)], **popen_kwargs)
+        proc = track(subprocess.Popen([str(binary), "run", "-c", str(config_path)], **popen_kwargs))
 
     paths.pid_file().write_text(str(proc.pid), encoding="utf-8")
     paths.engine_meta_file().write_text(
