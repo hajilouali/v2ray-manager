@@ -89,7 +89,7 @@ def test_a_chain_carries_real_traffic_through_each_hop(real_xray_fake_aether, ru
     socks, http = free_port(), free_port()
     notes = supervisor.connect_stack(chain, None, GLOBAL, socks, http)
 
-    assert any("previous hop" in n for n in notes)  # Aether after nothing; the trojan hop is the last
+    assert any("First connection of 'warp'" in n for n in notes)  # no identity yet: it would register one
     info = supervisor.status()
     assert info["connected"] and info["listening"] is True and info["hops"] == ["warp", "server"]
     assert [m["engine"] for m in info["stack"]] == ["aether", "xray"]

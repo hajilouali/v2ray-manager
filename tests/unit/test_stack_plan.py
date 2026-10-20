@@ -215,7 +215,7 @@ def test_a_server_then_aether_with_a_login_adds_the_front():
     p = plan(add_chain("c", server, warp), auth=ProxyAuth("u", "p"))
     assert [s.engine for s in p.stages] == [XRAY, AETHER, XRAY]
     assert [s.user_facing for s in p.stages] == [False, False, True]
-    assert p.hops == [server.name, warp.name, "front"]
+    assert p.hops == [server.name, warp.name]  # the front is not a hop the user chained
 
 
 def test_an_explicit_http3_choice_is_kept_through_a_chain():

@@ -415,7 +415,6 @@ def _plan_aether(
                 ),
             )
         )
-        plan.hops.append("front")
         plan.notes.append(
             "Xray serves the login / route preset in front of Aether (Aether's own SOCKS5 port has neither)."
         )
