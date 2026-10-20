@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from v2rm.coredl import install as installer
@@ -77,12 +80,36 @@ def install_engine(
     ),
     pre: bool = typer.Option(False, "--pre", help=_PRE_HELP),
     variant: str | None = typer.Option(None, "--variant", help=_VARIANT_HELP),
+    from_file: Path | None = typer.Option(
+        None,
+        "--from-file",
+        help="Install from a release archive you already have (downloaded on a faster link and copied over, "
+        "say) instead of downloading. Needs --version; add --sha256 to have it verified.",
+    ),
+    sha256: str | None = typer.Option(None, "--sha256", help="With --from-file: the archive's expected SHA-256."),
 ) -> None:
     """Download, verify, and install an engine binary."""
     _check_engine(engine)
     chosen = _check_variant(engine, variant)
     if version and pre:
         raise V2rmError("Use either --version or --pre, not both.")
+    if sha256 and from_file is None:
+        raise V2rmError("--sha256 goes with --from-file.")
+    if from_file is not None:
+        if pre:
+            raise V2rmError("--pre doesn't apply to --from-file; name the release with --version.")
+        try:
+            tag, digest = installer.install_from_file(engine, from_file, version or "", sha256, chosen)
+        except DownloadError as exc:
+            raise V2rmError(str(exc)) from exc
+        console.print(f"[green]Installed[/green] {engine} {tag} from {escape(str(from_file))}")
+        console.print(f"  sha256 {digest}")
+        if not sha256:
+            console.print(
+                "  [yellow]Nothing verified this file.[/yellow] Compare that digest with the one the release publishes "
+                "(the .sha256 file beside the asset, or SHA256SUMS.txt), or pass --sha256 next time."
+            )
+        return
     console.print(f"Fetching {engine} release info...")
     try:
         release = installer.fetch_release_for(engine, version, pre)

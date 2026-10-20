@@ -49,6 +49,8 @@ v2rm core install aether
 
 کانفیگ‌های خام، MASQUE و چند گزینه‌ی لینک به یک Xray-core جدید نیاز دارند. Xray-core فعلاً جدیدترین نسخه‌هایش را فقط به‌صورت *pre-release* در GitHub منتشر می‌کند و نصب‌کننده‌ی v2rm مگر اینکه بخواهید آن‌ها را نادیده می‌گیرد؛ پس `v2rm core update xray --pre` را اجرا کنید (دستور ساده‌ی `core update xray` نسخه‌ی stable قدیمی‌تر را می‌دهد)، بعد با `v2rm doctor` ببینید Xray شما دقیقاً چه چیزهایی را پشتیبانی می‌کند.
 
+روی سروری که لینکش به گیت‌هاب کند است، آرشیو نسخه را جایی دانلود کنید که لینک سریع است، آن را کپی کنید و از روی فایل نصبش کنید: `v2rm core install aether --from-file aether-linux-x86_64-musl.tar.gz --version v2.3.0 --sha256 <digest فایل .sha256 همان نسخه>` (بدون `--sha256` ، v2rm digest آرشیو را چاپ می‌کند و می‌گوید چیزی آن را تأیید نکرده). برای `xray` و `singbox` هم کار می‌کند.
+
 دستورهای `core install` و `core update` نسخه را از API گیت‌هاب می‌پرسند که برای هر آی‌پی فقط ۶۰ درخواست ناشناس در ساعت می‌دهد؛ روی سرور یا شبکه‌ای که آی‌پی مشترک دارد این سهمیه راحت تمام می‌شود. اگر پیام «rate limit exceeded» دیدید، تا زمان ریستی که چاپ می‌کند صبر کنید یا `GITHUB_TOKEN` را export کنید (هر توکنی، حتی بدون هیچ دسترسی، سقف را به ۵۰۰۰ در ساعت می‌رساند). توکن فقط به API فرستاده می‌شود، هرگز همراه دانلودها.
 
 ## شروع سریع
@@ -130,7 +132,7 @@ v2rm disconnect
 | `v2rm route edit` | ویرایش فایل قوانین روت سفارشی |
 | `v2rm route update-data [--force]` | به‌روزرسانی دیتابیس GeoIP/GeoSite برای Xray-core |
 | `v2rm core list` | لیست نسخه‌های نصب‌شده‌ی هسته‌ها |
-| `v2rm core install <xray\|singbox\|aether> [--version V \| --pre] [--variant musl\|gnu]` | دانلود، تأیید و نصب یک هسته (`--pre`: جدیدترین نسخه حتی اگر pre-release باشد؛ `--variant`: نسخه‌ی استاتیک musl برای Aether (پیش‌فرض) یا نسخه‌ی glibc) |
+| `v2rm core install <xray\|singbox\|aether> [--version V \| --pre] [--variant musl\|gnu] [--from-file PATH --version V [--sha256 HEX]]` | دانلود، تأیید و نصب یک هسته (`--pre`: جدیدترین نسخه حتی اگر pre-release باشد؛ `--variant`: نسخه‌ی استاتیک musl برای Aether (پیش‌فرض) یا نسخه‌ی glibc؛ `--from-file`: نصب از آرشیوی که از قبل دارید، مثلاً کپی‌شده از دستگاهی با لینک سریع‌تر) |
 | `v2rm core update <xray\|singbox\|aether> [--pre]` | به‌روزرسانی به آخرین نسخه؛ هرگز به نسخه‌ی قدیمی‌تر برنمی‌گردد (`--pre` نسخه‌های pre-release را هم در نظر می‌گیرد) |
 | `v2rm core use <xray\|singbox>` | تعیین هسته‌ی پیش‌فرض (Aether فقط پروفایل‌های Aether را اجرا می‌کند، پس هرگز پیش‌فرض نمی‌شود) |
 | `v2rm core remove <xray\|singbox\|aether> [--version V] [--all]` | حذف نسخه(های) نصب‌شده |

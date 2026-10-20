@@ -49,6 +49,8 @@ v2rm core install aether
 
 Raw configs, MASQUE and several link options need a recent Xray-core. Xray-core currently publishes its newest builds only as GitHub *pre-releases*, which v2rm's installer skips unless you ask for them, so run `v2rm core update xray --pre` (a plain `core update xray` would give you the older stable release), then `v2rm doctor` to see exactly what your Xray supports.
 
+On a server with a slow link to GitHub, download the release archive where the link is fast, copy it over and install it from the file: `v2rm core install aether --from-file aether-linux-x86_64-musl.tar.gz --version v2.3.0 --sha256 <digest from the release's .sha256 file>` (without `--sha256` v2rm prints the archive's digest and says nothing verified it). It works for `xray` and `singbox` too.
+
 `core install` and `core update` ask GitHub's API for the release, which allows only 60 anonymous requests an hour per IP address; a shared server or NAT can use that up. If you see "rate limit exceeded", wait for the reset time it prints, or export `GITHUB_TOKEN` (any token, even with no scopes, raises the limit to 5000 an hour). The token is only sent to the API, never with downloads.
 
 ## Quick start
@@ -130,7 +132,7 @@ Prefer a menu over remembering flags? Just run `v2rm` with no arguments.
 | `v2rm route edit` | Edit the custom routing rules file |
 | `v2rm route update-data [--force]` | Refresh Xray-core's GeoIP/GeoSite data |
 | `v2rm core list` | List installed engine versions |
-| `v2rm core install <xray\|singbox\|aether> [--version V \| --pre] [--variant musl\|gnu]` | Download, verify and install an engine (`--pre`: newest release even if it is a pre-release; `--variant`: Aether's static musl build (default) or its glibc build) |
+| `v2rm core install <xray\|singbox\|aether> [--version V \| --pre] [--variant musl\|gnu] [--from-file PATH --version V [--sha256 HEX]]` | Download, verify and install an engine (`--pre`: newest release even if it is a pre-release; `--variant`: Aether's static musl build (default) or its glibc build; `--from-file`: install an archive you already have, e.g. one copied from a machine with a faster link) |
 | `v2rm core update <xray\|singbox\|aether> [--pre]` | Update to the latest release; never downgrades (`--pre` includes pre-releases) |
 | `v2rm core use <xray\|singbox>` | Set the default engine (Aether only runs Aether profiles, so it is never the default) |
 | `v2rm core remove <xray\|singbox\|aether> [--version V] [--all]` | Remove installed engine version(s) |

@@ -305,3 +305,86 @@ def test_version_command_lists_aether():
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
     assert "aether" in result.output
+
+
+# ---- installing from a file you already have --------------------------------------------------------
+
+
+def test_install_from_a_local_archive_with_a_checksum(tmp_path):
+    data = aether_archive()
+    archive_path = tmp_path / ASSET
+    archive_path.write_bytes(data)
+
+    tag, digest = installer.install_from_file("aether", archive_path, "v2.3.0", hashlib.sha256(data).hexdigest())
+
+    assert tag == "v2.3.0" and digest == hashlib.sha256(data).hexdigest()
+    assert installer.current_version("aether") == "v2.3.0"
+    binary = paths.engine_binary_path("aether")
+    assert binary.read_bytes() == b"FAKE-AETHER" and (binary.parent / "pt" / "lyrebird").exists()
+
+
+def test_a_wrong_checksum_is_refused_and_nothing_is_installed(tmp_path):
+    archive_path = tmp_path / ASSET
+    archive_path.write_bytes(aether_archive())
+    with pytest.raises(ChecksumError, match="mismatch"):
+        installer.install_from_file("aether", archive_path, "v2.3.0", "0" * 64)
+    assert installer.current_version("aether") is None
+
+
+def test_a_version_and_an_existing_file_are_required(tmp_path):
+    with pytest.raises(DownloadError, match="not found"):
+        installer.install_from_file("aether", tmp_path / "nope.tar.gz", "v2.3.0")
+    archive_path = tmp_path / ASSET
+    archive_path.write_bytes(aether_archive())
+    with pytest.raises(DownloadError, match="--version is required"):
+        installer.install_from_file("aether", archive_path, " ")
+
+
+def test_xray_and_singbox_can_be_installed_from_files_too(tmp_path):
+    import zipfile
+
+    zip_path = tmp_path / "Xray-linux-64.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("xray", b"FAKE-XRAY")
+    installer.install_from_file("xray", zip_path, "v26.10.17")
+    assert paths.engine_binary_path("xray").read_bytes() == b"FAKE-XRAY"
+
+    tar_path = tmp_path / "sing-box.tar.gz"
+    tar_path.write_bytes(archive({"sing-box-1.14.0-linux-amd64/sing-box": b"FAKE-SINGBOX"}))
+    installer.install_from_file("singbox", tar_path, "v1.14.0")
+    assert paths.engine_binary_path("singbox").read_bytes() == b"FAKE-SINGBOX"
+
+
+def test_core_install_from_file_through_the_command(tmp_path):
+    data = aether_archive()
+    archive_path = tmp_path / ASSET
+    archive_path.write_bytes(data)
+
+    result = runner.invoke(
+        app,
+        ["core", "install", "aether", "--from-file", str(archive_path), "--version", "v2.3.0",
+         "--sha256", hashlib.sha256(data).hexdigest()],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Installed aether v2.3.0" in result.output and "Nothing verified" not in result.output
+    assert installer.current_version("aether") == "v2.3.0"
+
+
+def test_without_a_checksum_the_command_says_nothing_verified_the_file(tmp_path):
+    archive_path = tmp_path / ASSET
+    archive_path.write_bytes(aether_archive())
+    result = runner.invoke(app, ["core", "install", "aether", "--from-file", str(archive_path), "--version", "v2.3.0"])
+    assert result.exit_code == 0, result.output
+    assert "Nothing verified this file" in result.output and "sha256 " in result.output
+
+
+def test_from_file_option_mistakes(tmp_path):
+    archive_path = tmp_path / ASSET
+    archive_path.write_bytes(aether_archive())
+    for args, fragment in [
+        (["--sha256", "ab" * 32], "goes with --from-file"),
+        (["--from-file", str(archive_path), "--pre"], "doesn't apply"),
+        (["--from-file", str(archive_path)], "--version is required"),
+    ]:
+        result = runner.invoke(app, ["core", "install", "aether", *args])
+        assert result.exit_code != 0 and fragment in str(result.exception), (args, str(result.exception))

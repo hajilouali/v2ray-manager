@@ -324,6 +324,40 @@ def install_aether(
     return release.tag
 
 
+def install_from_file(
+    engine: str,
+    archive: Path,
+    version: str,
+    sha256: str | None = None,
+    variant: str | None = None,
+) -> tuple[str, str]:
+    """Install an engine from an archive already on this machine (an offline install, or one
+    downloaded on a faster link and copied over). Returns (version, the archive's sha256).
+
+    Without `sha256` nothing vouches for the file, so the caller shows the digest to compare with
+    the one the release publishes; with it, a mismatch is refused."""
+    if not archive.is_file():
+        raise DownloadError(f"File not found: {archive}")
+    if not version.strip():
+        raise DownloadError("--version is required with --from-file: the archive does not say which release it is")
+    data = archive.read_bytes()
+    actual = hashlib.sha256(data).hexdigest()
+    if sha256 and actual != sha256.strip().lower():
+        raise ChecksumError(f"Checksum mismatch for {archive.name}: expected {sha256.strip().lower()}, got {actual}")
+
+    tag = version.strip()
+    if engine == ENGINE_AETHER:
+        _extract_tar_tree(data, "aether", paths.engine_dir(ENGINE_AETHER) / tag)
+        if variant:
+            _variant_marker().write_text(variant, encoding="utf-8")
+    elif engine == ENGINE_XRAY:
+        _install_binary(ENGINE_XRAY, tag, _extract_zip_binary(data, "xray"))
+    else:
+        _install_binary(ENGINE_SINGBOX, tag, _extract_tar_binary(data, "sing-box"))
+    use_version(engine, tag)
+    return tag, actual
+
+
 def fetch_release_for(engine: str, version: str | None = None, include_prerelease: bool = False) -> Release:
     """Release info for an engine, without downloading anything."""
     if engine == ENGINE_XRAY:
