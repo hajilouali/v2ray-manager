@@ -130,6 +130,7 @@ def test_show_describes_hops_programs_and_notes():
     assert "you -> WARP -> trojan -> the internet" in out
     assert "(aether)" in out and "(xray)" in out  # the programs, in start order
     assert "registers a free anonymous Cloudflare WARP device" in out
+    assert out.count("registers a") == 1  # said once, not again as a generic tip
 
 
 def test_show_a_broken_chain_names_the_missing_hop():

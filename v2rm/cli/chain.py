@@ -14,7 +14,7 @@ from rich.table import Table
 from v2rm.engines import resolve_engine
 from v2rm.errors import ProfileValidationError, V2rmError
 from v2rm.models.chain import HOP_PROFILE, HOP_PROXY, ChainHop
-from v2rm.models.enums import EngineKind, Protocol
+from v2rm.models.enums import Protocol
 from v2rm.models.profile import Profile
 from v2rm.net.ports import free_port
 from v2rm.net.proxy_url import parse_proxy_url
@@ -172,8 +172,6 @@ def show_command(ref: str = typer.Argument(..., help="Chain id or name.")) -> No
         console.print(f"    - {escape(stage.label)}  [dim]({role})[/dim]")
     for note in plan.notes:
         console.print(f"  [yellow]Note:[/yellow] {escape(note)}")
-    if any(stage.engine == EngineKind.AETHER for stage in plan.stages):
-        console.print("  [dim]Aether registers a WARP device the first time it runs, then finds a gateway by scanning.[/dim]")
 
 
 @chain_app.command("remove")

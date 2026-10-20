@@ -79,6 +79,31 @@ def _is_alive(pid: int) -> bool:
     return not _is_zombie(pid)
 
 
+def _start_token(pid: int) -> str | None:
+    """What identifies this particular process (Linux: its start time in /proc), so a pid the
+    system has since handed to something else -- after a reboot, say, with the pid file still
+    there -- is not mistaken for the program v2rm started, and never signalled."""
+    try:
+        text = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    fields = text.rpartition(")")[2].split()
+    return fields[19] if len(fields) > 19 else None
+
+
+def _same_process(pid: int, token: str | None) -> bool:
+    """False only when a token was recorded for the pid and the process there now has another."""
+    if not token:
+        return True
+    current = _start_token(pid)
+    return current is None or current == token
+
+
+def _member_alive(member: dict[str, Any]) -> bool:
+    pid = int(member["pid"])
+    return _is_alive(pid) and _same_process(pid, member.get("start"))
+
+
 def _is_alive_windows(pid: int) -> bool:
     # os.kill(pid, 0) is not a liveness no-op on Windows (0 == CTRL_C_EVENT),
     # so this dev/test platform needs its own check. The shipped target is
@@ -120,7 +145,7 @@ def _stack_members() -> list[dict[str, Any]]:
 
 def _cleanup_stale_pidfile() -> None:
     # The programs behind the one the user talked to must not outlive it.
-    orphans = [int(m["pid"]) for m in _stack_members() if _is_alive(int(m["pid"])) and int(m["pid"]) != os.getpid()]
+    orphans = [int(m["pid"]) for m in _stack_members() if _member_alive(m) and int(m["pid"]) != os.getpid()]
     if orphans:
         from v2rm.process import stack
 
@@ -138,7 +163,7 @@ def is_connected() -> tuple[bool, int | None]:
     pid = _read_pid()
     if pid is None:
         return False, None
-    if _is_alive(pid):
+    if _is_alive(pid) and _same_process(pid, _read_meta().get("pid_start")):
         return True, pid
     _cleanup_stale_pidfile()
     return False, None
@@ -155,7 +180,7 @@ def status() -> dict[str, Any]:
     if members:
         # A stack is only as alive as its weakest program: the proxy can answer while the hop
         # behind it is gone.
-        info["stack"] = [{**m, "alive": _is_alive(int(m["pid"]))} for m in members]
+        info["stack"] = [{**m, "alive": _member_alive(m)} for m in members]
         info["degraded"] = any(not m["alive"] for m in info["stack"])
     if connected and meta.get("socks_port"):
         # Is the proxy actually accepting connections, at the address it was
@@ -301,6 +326,7 @@ def connect(
                 "http_port": http_port,
                 "authenticated": auth is not None,
                 "started_at": time.time(),
+                "pid_start": _start_token(proc.pid),
             }
         ),
         encoding="utf-8",
@@ -462,6 +488,7 @@ def _record_stack(
                 "http_port": http_port,
                 "authenticated": auth is not None,
                 "started_at": time.time(),
+                "pid_start": _start_token(facing.pid),
                 "state": state,
                 "hops": plan.hops,
                 "aether_ids": plan.aether_ids,
@@ -473,6 +500,7 @@ def _record_stack(
                         "listen": r.stage.listen,
                         "socks_port": r.stage.socks_port,
                         "user_facing": r.stage.user_facing,
+                        "start": _start_token(r.pid),
                         "log": str(r.log_path),
                     }
                     for r in running
@@ -612,10 +640,10 @@ def run_temporary(
 
 def disconnect() -> None:
     pid = _read_pid()
-    members = [int(m["pid"]) for m in _stack_members()]
-    if members:
-        # A stack: stop every program of it, the one the user talks to first.
-        if not any(_is_alive(p) for p in members):
+    members = [int(m["pid"]) for m in _stack_members() if _member_alive(m)]
+    if _stack_members():
+        # A stack: stop every program of it that is still ours, the one the user talks to first.
+        if not members:
             _cleanup_stale_pidfile()
             raise NotConnectedError("v2rm is not currently connected.")
         from v2rm.process import stack
@@ -624,7 +652,7 @@ def disconnect() -> None:
         _cleanup_stale_pidfile()
         return
 
-    if pid is None or not _is_alive(pid):
+    if pid is None or not _is_alive(pid) or not _same_process(pid, _read_meta().get("pid_start")):
         _cleanup_stale_pidfile()
         raise NotConnectedError("v2rm is not currently connected.")
 
