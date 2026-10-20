@@ -202,6 +202,24 @@ def check_composition(hops: list[Hop], name: str) -> None:
             seen.add(hop.profile.id)
 
 
+FIRST_CONNECTION = "First connection of"
+
+
+def registration_note(member: Profile) -> str | None:
+    """Said before a profile whose WARP identity does not exist yet is started: Aether is about
+    to register a device with Cloudflare, which is a network call the user should expect."""
+    settings = member.aether
+    if settings is None:
+        return None
+    registered, needed = aether_files.identity_state(aether_files.config_path(member.id), settings.mode)
+    if registered >= needed:
+        return None
+    return (
+        f"{FIRST_CONNECTION} '{member.name}': Aether registers a free anonymous Cloudflare WARP device "
+        "for it (keys are kept under your v2rm data folder). That needs api.cloudflareclient.com to be reachable."
+    )
+
+
 def aether_start_timeout() -> float:
     raw = os.environ.get(ENV_START_TIMEOUT, "").strip()
     try:
@@ -356,12 +374,9 @@ def _plan_aether(
     )
     plan.notes.extend(notes)
 
-    registered, needed = aether_files.identity_state(aether_files.config_path(member.id), settings.mode)
-    if registered < needed:
-        plan.notes.append(
-            f"First connection of '{member.name}': Aether registers a free anonymous Cloudflare WARP device "
-            "for it (keys are kept under your v2rm data folder). That needs api.cloudflareclient.com to be reachable."
-        )
+    note = registration_note(member)
+    if note:
+        plan.notes.append(note)
 
     plan.aether_ids.append(member.id)
     plan.stages.append(

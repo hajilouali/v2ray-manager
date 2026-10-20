@@ -99,10 +99,16 @@ def connect_command(
 def _connect_stack(profile_store, profile, state, route_plan: RoutePlan, auth) -> list[str]:
     """Aether profiles and chains: one program per hop, so say what is going on while the
     tunnel is being found."""
-    if stack.aether_profile_ids(profile, profile_store):
+    aether_ids = stack.aether_profile_ids(profile, profile_store)
+    if aether_ids:
+        for profile_id in aether_ids:
+            member = profile_store.get(profile_id)
+            note = stack.registration_note(member) if member else None
+            if note:
+                console.print(f"[yellow]Note:[/yellow] {escape(note)}")
         console.print(f"[dim]{AETHER_WAIT_NOTE}[/dim]")
     try:
-        return supervisor.connect_stack(
+        notes = supervisor.connect_stack(
             profile,
             state.active_engine,
             route_plan,
@@ -116,6 +122,8 @@ def _connect_stack(profile_store, profile, state, route_plan: RoutePlan, auth) -
     except KeyboardInterrupt:
         console.print("[yellow]Cancelled; nothing was left running.[/yellow]")
         raise typer.Exit(code=130) from None
+    # The first-connection notice was shown before the wait; don't repeat it afterwards.
+    return [n for n in notes if not n.startswith(stack.FIRST_CONNECTION)]
 
 
 def _chain_text(info: dict, profile) -> str:

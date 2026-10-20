@@ -94,6 +94,24 @@ def test_the_wait_note_and_progress_lines_are_shown(fake_stack):
     assert "using cloudflare edge 162.159.198.1:443" in result.output
 
 
+def test_a_first_connection_says_it_will_register_a_device_before_the_wait_and_only_once(fake_stack):
+    add_aether()
+    fake_stack.notes = ["First connection of 'WARP': Aether registers a free anonymous Cloudflare WARP device for it"]
+    result = runner.invoke(app, ["connect", "WARP"])
+    assert result.exit_code == 0, result.output
+    assert result.output.count("First connection of") == 1
+    assert result.output.index("First connection of") < result.output.index("looking for a working Cloudflare gateway")
+
+
+def test_no_registration_notice_once_the_identity_exists(fake_stack):
+    warp = add_aether()
+    identity = paths.aether_profile_dir(warp.id) / "aether-masque.toml"
+    identity.parent.mkdir(parents=True)
+    identity.write_text("keys")
+    result = runner.invoke(app, ["connect", "WARP"])
+    assert "First connection of" not in result.output
+
+
 def test_notes_from_the_stack_are_shown(fake_stack):
     add_aether()
     fake_stack.notes = ["Using the HTTP/2 (TCP) carrier through the previous hop of the chain."]

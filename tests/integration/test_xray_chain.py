@@ -148,12 +148,14 @@ def socks_get(port: int, url: str, auth: ProxyAuth | None = None) -> requests.Re
 
 
 def trojan_server(port: int) -> dict:
+    # A server-side freedom outbound refuses private addresses by default (Xray's own safety
+    # net), and this target is on loopback: allow it explicitly.
     return {
         "log": {"loglevel": "warning"},
         "inbounds": [
             {"listen": "127.0.0.1", "port": port, "protocol": "trojan", "settings": {"clients": [{"password": "pw"}]}}
         ],
-        "outbounds": [{"protocol": "freedom", "settings": {}}],
+        "outbounds": [{"protocol": "freedom", "settings": {"finalRules": [{"action": "allow"}]}}],
     }
 
 
