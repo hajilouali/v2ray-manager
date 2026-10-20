@@ -31,10 +31,12 @@ from typing import Any
 
 from v2rm.constants import (
     AETHER_POLL_INTERVAL,
+    AETHER_SETTLE_SECONDS,
     AETHER_START_TIMEOUT,
     CONNECT_POLL_INTERVAL,
     CONNECT_POLL_TIMEOUT,
     DISCONNECT_GRACE_SECONDS,
+    READY_SETTLE_SECONDS,
 )
 from v2rm.engines import generate_config, needs_preflight, resolve_engine
 from v2rm.engines.aether import files as aether_files
@@ -97,6 +99,8 @@ class Stage:
     workdir: Path | None = None
     ready: str = READY_PORT
     ready_timeout: float = CONNECT_POLL_TIMEOUT
+    # How long after the port first answers to wait and check the program is still alive.
+    settle: float = READY_SETTLE_SECONDS
 
 
 @dataclass
@@ -395,6 +399,7 @@ def _plan_aether(
             workdir=paths.aether_profile_dir(member.id),
             ready=READY_SOCKS5,
             ready_timeout=float(settings.wait_secs) if settings.wait_secs else aether_start_timeout(),
+            settle=AETHER_SETTLE_SECONDS,
         )
     )
 
@@ -576,8 +581,12 @@ def wait_ready(running: Running, progress: Progress | None) -> None:
                 f"{stage.label} exited (code {code}) before it was ready. Last log lines:\n{tail(running.log_path)}"
             )
         if _is_ready(stage):
-            report()
-            return
+            # Something answered the port. Make sure it is this program: one that could not bind
+            # exits right after starting, while another program holding the port answers for it.
+            if supervisor._settle(running.proc, stage.settle):
+                report()
+                return
+            continue  # it died just after the port answered: the next pass reports it
         report()
         if time.monotonic() >= deadline:
             raise ConnectFailedError(

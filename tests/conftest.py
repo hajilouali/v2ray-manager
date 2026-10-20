@@ -31,3 +31,16 @@ def host_addresses(monkeypatch):
     monkeypatch.setattr("v2rm.net.addresses.local_address_exists", lambda address: address in present)
     monkeypatch.setattr("v2rm.net.addresses.local_addresses", lambda *args, **kwargs: sorted(present))
     return present
+
+
+# The real probe, kept for the tests of the probe itself (see test_ports_in_use.py).
+from v2rm.net import addresses as _addresses  # noqa: E402
+
+REAL_PORTS_IN_USE = _addresses.ports_in_use
+
+
+@pytest.fixture(autouse=True)
+def _no_busy_ports(monkeypatch):
+    """Whatever happens to be listening on the machine running the tests must not decide whether a
+    connect is refused: the free-port check sees every port as free unless a test says otherwise."""
+    monkeypatch.setattr("v2rm.net.addresses.ports_in_use", lambda address, ports: [])

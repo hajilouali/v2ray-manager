@@ -338,3 +338,44 @@ def test_run_temporary_collects_generator_notes(monkeypatch, engine_installed, i
     with supervisor.run_temporary(profile, EngineKind.XRAY, GLOBAL, 20808, 20809, notes=notes):
         pass
     assert len(notes) == 1 and "tun 't'" in notes[0]
+
+
+# ---- somebody else already has the port -------------------------------------------------------------------------
+
+
+def test_connect_refuses_a_port_another_program_holds_and_starts_nothing(monkeypatch, engine_installed, installed_core):
+    started: list = []
+    monkeypatch.setattr(supervisor.subprocess, "Popen", lambda *a, **k: started.append(a) or FakeProc())
+    monkeypatch.setattr(supervisor.addresses, "ports_in_use", lambda address, ports: [10808])
+    monkeypatch.setattr(supervisor, "run_config_test", lambda *args: None)
+
+    with pytest.raises(ConnectFailedError) as caught:
+        supervisor.connect(trojan(), EngineKind.XRAY, GLOBAL, 10808, 10809)
+
+    assert started == []
+    assert "Port 10808 on 127.0.0.1 is already in use by another program" in str(caught.value)
+    assert not paths.pid_file().exists()
+
+
+def test_connect_is_not_fooled_by_the_other_programs_open_port_when_the_engine_dies(
+    monkeypatch, engine_installed, installed_core
+):
+    """The port answers (it is somebody else's), but the engine we started is gone a moment later."""
+
+    class DiesSoon(FakeProc):
+        def __init__(self):
+            super().__init__()
+            self.polls = 0
+
+        def poll(self):
+            self.polls += 1
+            return None if self.polls <= 1 else 1  # alive at the first check, gone by the re-check
+
+    monkeypatch.setattr(supervisor.subprocess, "Popen", lambda *a, **k: DiesSoon())
+    monkeypatch.setattr(supervisor, "_port_open", always_open)
+    monkeypatch.setattr(supervisor, "READY_SETTLE_SECONDS", 0.0)
+    monkeypatch.setattr(supervisor, "run_config_test", lambda *args: None)
+
+    with pytest.raises(ConnectFailedError, match="exited"):
+        supervisor.connect(trojan(), EngineKind.XRAY, GLOBAL, 10808, 10809)
+    assert not paths.pid_file().exists()

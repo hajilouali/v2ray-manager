@@ -44,6 +44,10 @@ TEST_CHUNK_SIZE = 65536
 CONNECT_POLL_TIMEOUT = 2.0
 CONNECT_POLL_INTERVAL = 0.1
 DISCONNECT_GRACE_SECONDS = 3.0
+# After a port answers, how long a program gets to prove it is the one serving it (see supervisor._settle).
+READY_SETTLE_SECONDS = 0.25
+# Aether checks its SOCKS port and decides to start or stop in the first moments after it is launched.
+AETHER_SETTLE_SECONDS = 0.75
 
 # Aether scans for a working Cloudflare gateway and proves the tunnel carries data before it opens
 # its SOCKS port, which takes seconds to minutes -- not the two seconds Xray needs.

@@ -13,11 +13,17 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from v2rm.constants import CONNECT_POLL_INTERVAL, CONNECT_POLL_TIMEOUT, DISCONNECT_GRACE_SECONDS
+from v2rm.constants import (
+    CONNECT_POLL_INTERVAL,
+    CONNECT_POLL_TIMEOUT,
+    DISCONNECT_GRACE_SECONDS,
+    READY_SETTLE_SECONDS,
+)
 from v2rm.errors import ConnectFailedError, EngineNotInstalledError, NotConnectedError
 from v2rm.models.auth import ProxyAuth
 from v2rm.models.enums import EngineKind
 from v2rm.models.profile import Profile
+from v2rm.net import addresses
 from v2rm.process.preflight import run_config_test
 from v2rm.routing.model import RoutePlan
 from v2rm.store import paths
@@ -191,6 +197,29 @@ def status() -> dict[str, Any]:
     return info
 
 
+def _ensure_ports_free(listen_address: str, ports: list[int]) -> None:
+    """Refuse to start where something else already listens. Without this the engine exits with
+    "address already in use" a moment after it starts -- and in that moment the other program's
+    open port makes the proxy look like it is up."""
+    busy = addresses.ports_in_use(listen_address, ports)
+    if not busy:
+        return
+    shown = ", ".join(str(p) for p in busy)
+    where = "this machine" if addresses.is_wildcard(listen_address) else listen_address
+    raise ConnectFailedError(
+        f"Port {shown} on {where} is already in use by another program, so the proxy can't start there. "
+        f"Find it with `ss -ltnp | grep -E ':({'|'.join(str(p) for p in busy)})'` (another v2rm or Xray left running, "
+        "perhaps), or choose other ports with `v2rm port set --socks N --http M`."
+    )
+
+
+def _settle(proc: Any, seconds: float = READY_SETTLE_SECONDS) -> bool:
+    """After the port answered, give the program a moment and check it is still there: one that
+    failed to bind exits right after starting, while another program's port answers for it."""
+    time.sleep(seconds)
+    return proc.poll() is None
+
+
 def _port_open(port: int, host: str = "127.0.0.1", timeout: float = 0.3) -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout):
@@ -295,6 +324,7 @@ def connect(
 
     config_path = paths.runtime_config_file()
     os.replace(candidate, config_path)
+    _ensure_ports_free(listen_address, [socks_port, http_port])
 
     log_path = paths.engine_log_file()
     if log_path.exists():
@@ -341,7 +371,9 @@ def connect(
                 f"{engine.value} exited immediately (code {proc.returncode}). Last log lines:\n{_tail_log()}"
             )
         if _port_open(socks_port, host=probe_host):
-            return notes
+            if _settle(proc):
+                return notes
+            continue  # it died just after the port answered: the loop reports it
         time.sleep(CONNECT_POLL_INTERVAL)
 
     if proc.poll() is not None:
@@ -426,6 +458,11 @@ def connect_stack(
     connected, _ = is_connected()
     if connected:
         disconnect()
+    try:
+        _ensure_ports_free(listen_address, [socks_port, http_port])
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
     for candidate in staging.glob("stage-*.json"):
         os.replace(candidate, paths.run_dir() / candidate.name)
     shutil.rmtree(staging, ignore_errors=True)

@@ -12,6 +12,7 @@ What the aether stand-in does is set by AETHER_FAKE_BEHAVIOUR (an AETHER_* varia
     prebind      bind and drop the port first, as the real Aether does, and open it for real later
     exit         print an error and exit with code 1
     never        run forever without ever opening the port
+    die-after-ready  open the port, then exit a moment later
 
 Set AETHER_FAKE_PROXY=1 and the aether stand-in is a working SOCKS5 proxy (CONNECT only, no login)
 that relays to whatever it is asked for and records "relay HOST:PORT" in the events file -- so a
@@ -87,10 +88,20 @@ def relay(conn: socket.socket) -> None:
     pump(conn, upstream)
 
 
-def serve(host: str, port: int, proxy: bool = False) -> None:
+def bound_socket(host: str, port: int) -> socket.socket:
+    """A socket bound like the real engines bind: another program on the port is an error."""
     server = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if os.name == "nt":
+        # SO_REUSEADDR lets a second program share a port on Windows; the real engines refuse to.
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    else:
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((host, port))
+    return server
+
+
+def serve(host: str, port: int, proxy: bool = False) -> None:
+    server = bound_socket(host, port)
     server.listen(16)
 
     def handle(conn: socket.socket) -> None:
@@ -133,6 +144,14 @@ def aether() -> int:
     log("Aether v0.0.0-fake")
     behaviour = env.get("AETHER_FAKE_BEHAVIOUR", "ok")
 
+    # The real Aether binds the SOCKS5 port for a moment right at start-up, just to see it is free,
+    # and stops with an error if something else has it.
+    try:
+        bound_socket(host, port).close()
+    except OSError as exc:
+        print(f"Error: the socks5 listener cannot use {host}:{port}: {exc}", file=sys.stderr, flush=True)
+        return 1
+
     if behaviour == "exit":
         print("Error: the socks5 listener cannot use that address: fake failure", file=sys.stderr, flush=True)
         return 1
@@ -143,10 +162,6 @@ def aether() -> int:
         while True:
             time.sleep(1)
     if behaviour == "prebind":
-        probe = socket.socket()
-        probe.bind((host, port))
-        probe.listen(1)
-        probe.close()
         time.sleep(1.5)
     if behaviour.startswith("slow:"):
         time.sleep(float(behaviour.split(":", 1)[1]))
@@ -155,6 +170,10 @@ def aether() -> int:
     log("[+] using cloudflare edge 162.159.198.1:443")
     log("[+] masque tunnel validated (end-to-end data confirmed); exposing socks5")
     log(f"[+] socks5 server listening on {host}:{port}")
+    if behaviour == "die-after-ready":
+        threading.Thread(target=serve, args=(host, port), daemon=True).start()
+        time.sleep(0.1)
+        return 3
     serve(host, port, proxy=env.get("AETHER_FAKE_PROXY") == "1")
     return 0
 

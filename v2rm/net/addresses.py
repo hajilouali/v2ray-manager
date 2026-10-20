@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
 import socket
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 from v2rm.errors import V2rmError
 
@@ -128,3 +129,23 @@ def ensure_listen_address_available(
         + " (A Docker bridge address only exists while Docker is running.) Start whatever provides it, "
         "or choose another address with `v2rm port set --listen ...`."
     )
+
+
+def ports_in_use(address: str, ports: Iterable[int]) -> list[int]:
+    """Which of `ports` something else already holds on `address`, found by trying to bind them
+    (nothing is left listening). Another program there is why an engine would exit with "address
+    already in use" -- and why a bare "is the port open?" check can say the proxy is up when it
+    is somebody else's."""
+    ip = parse_ip(address) or parse_ip("127.0.0.1")
+    family = socket.AF_INET6 if ip is not None and ip.version == 6 else socket.AF_INET
+    host = str(ip) if ip is not None else "127.0.0.1"
+    busy: list[int] = []
+    for port in ports:
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as probe:
+                if os.name != "nt":  # on Windows SO_REUSEADDR would let a second bind through
+                    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                probe.bind((host, int(port)))
+        except OSError:
+            busy.append(int(port))
+    return busy
