@@ -12,6 +12,10 @@ What the aether stand-in does is set by AETHER_FAKE_BEHAVIOUR (an AETHER_* varia
     prebind      bind and drop the port first, as the real Aether does, and open it for real later
     exit         print an error and exit with code 1
     never        run forever without ever opening the port
+
+Set AETHER_FAKE_PROXY=1 and the aether stand-in is a working SOCKS5 proxy (CONNECT only, no login)
+that relays to whatever it is asked for and records "relay HOST:PORT" in the events file -- so a
+test can send real traffic through a stack and see which hop carried it.
 """
 
 from __future__ import annotations
@@ -42,7 +46,48 @@ def split_address(text: str) -> tuple[str, int]:
     return host.strip("[]"), int(port)
 
 
-def serve(host: str, port: int) -> None:
+def pump(source: socket.socket, sink: socket.socket) -> None:
+    try:
+        while True:
+            data = source.recv(65536)
+            if not data:
+                break
+            sink.sendall(data)
+    except OSError:
+        pass
+    finally:
+        for sock in (source, sink):
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+
+def relay(conn: socket.socket) -> None:
+    """The rest of a SOCKS5 CONNECT after the greeting: read the request, connect, relay."""
+    head = conn.recv(4)
+    if len(head) < 4 or head[1] != 1:
+        return
+    if head[3] == 1:
+        host = socket.inet_ntoa(conn.recv(4))
+    elif head[3] == 3:
+        host = conn.recv(conn.recv(1)[0]).decode()
+    else:
+        host = socket.inet_ntop(socket.AF_INET6, conn.recv(16))
+    port = int.from_bytes(conn.recv(2), "big")
+    event(f"relay {host}:{port}")
+    try:
+        upstream = socket.create_connection((host, port), timeout=5)
+    except OSError:
+        conn.sendall(b"\x05\x05\x00\x01\x00\x00\x00\x00\x00\x00")
+        return
+    conn.sendall(b"\x05\x00\x00\x01\x00\x00\x00\x00\x00\x00")
+    conn.settimeout(None)
+    threading.Thread(target=pump, args=(upstream, conn), daemon=True).start()
+    pump(conn, upstream)
+
+
+def serve(host: str, port: int, proxy: bool = False) -> None:
     server = socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((host, port))
@@ -50,10 +95,12 @@ def serve(host: str, port: int) -> None:
 
     def handle(conn: socket.socket) -> None:
         try:
-            conn.settimeout(2)
+            conn.settimeout(5)
             greeting = conn.recv(3)
             if greeting[:1] == b"\x05":
                 conn.sendall(b"\x05\x00")
+                if proxy:
+                    relay(conn)
         except OSError:
             pass
         finally:
@@ -105,7 +152,7 @@ def aether() -> int:
     log("[+] using cloudflare edge 162.159.198.1:443")
     log("[+] masque tunnel validated (end-to-end data confirmed); exposing socks5")
     log(f"[+] socks5 server listening on {host}:{port}")
-    serve(host, port)
+    serve(host, port, proxy=env.get("AETHER_FAKE_PROXY") == "1")
     return 0
 
 

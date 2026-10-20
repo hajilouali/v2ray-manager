@@ -15,16 +15,12 @@ from __future__ import annotations
 
 import base64
 import json
-import os
-import socket
-import subprocess
-import threading
 import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 import requests
 
+from tests.integration.support import plain_socks_hop, socks_get, trojan_server
 from v2rm.engines.xray.generate import generate_config, generate_front_config
 from v2rm.errors import ConfigTestError
 from v2rm.models.auth import ProxyAuth
@@ -86,89 +82,6 @@ def test_the_front_is_accepted(xray_binary, assets_dir, tmp_path, listen, auth):
 
 
 # ---- a real chain on loopback ---------------------------------------------------------------------------------
-
-
-class Hello(BaseHTTPRequestHandler):
-    def do_GET(self):  # noqa: N802
-        body = b"hello from the target"
-        self.send_response(200)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, *args):
-        pass
-
-
-@pytest.fixture
-def target():
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Hello)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield server.server_address[1]
-    server.shutdown()
-
-
-@pytest.fixture
-def run_xray(xray_binary, assets_dir, tmp_path):
-    started: list[subprocess.Popen] = []
-
-    def start(name: str, config: dict, port: int) -> None:
-        path = tmp_path / f"{name}.json"
-        path.write_text(json.dumps(config), encoding="utf-8")
-        env = dict(os.environ, XRAY_LOCATION_ASSET=str(assets_dir))
-        proc = subprocess.Popen(
-            [str(xray_binary), "run", "-c", str(path)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT
-        )
-        started.append(proc)
-        deadline = time.monotonic() + 15
-        while time.monotonic() < deadline:
-            if proc.poll() is not None:
-                pytest.fail(f"xray ({name}) exited with code {proc.returncode}")
-            try:
-                with socket.create_connection(("127.0.0.1", port), timeout=0.3):
-                    return
-            except OSError:
-                time.sleep(0.1)
-        pytest.fail(f"xray ({name}) never listened on {port}")
-
-    yield start
-    for proc in started:
-        proc.terminate()
-    for proc in started:
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-
-
-def socks_get(port: int, url: str, auth: ProxyAuth | None = None) -> requests.Response:
-    userinfo = f"{auth.userinfo()}@" if auth else ""
-    proxy = f"socks5h://{userinfo}127.0.0.1:{port}"
-    return requests.get(url, proxies={"http": proxy, "https": proxy}, timeout=10)
-
-
-def trojan_server(port: int) -> dict:
-    # A server-side freedom outbound refuses private addresses by default (Xray's own safety
-    # net), and this target is on loopback: allow it explicitly.
-    return {
-        "log": {"loglevel": "warning"},
-        "inbounds": [
-            {"listen": "127.0.0.1", "port": port, "protocol": "trojan", "settings": {"clients": [{"password": "pw"}]}}
-        ],
-        "outbounds": [{"protocol": "freedom", "settings": {"finalRules": [{"action": "allow"}]}}],
-    }
-
-
-def plain_socks_hop(port: int, access_log) -> dict:
-    """The previous hop: a SOCKS proxy that dials directly, logging what it is asked to reach
-    (it stands in for Aether's SOCKS5 port)."""
-    return {
-        "log": {"loglevel": "info", "access": str(access_log)},
-        "inbounds": [
-            {"tag": "socks-in", "listen": "127.0.0.1", "port": port, "protocol": "socks", "settings": {"auth": "noauth", "udp": True}}
-        ],
-        "outbounds": [{"protocol": "freedom", "settings": {}}],
-    }
 
 
 def test_a_chained_hop_really_leaves_through_the_previous_hop(run_xray, target, tmp_path):
