@@ -116,3 +116,58 @@ def test_sub_update_all(monkeypatch):
     assert result.exit_code == 0, result.output
     assert "AllSub1" in result.output
     assert "AllSub2" in result.output
+
+
+def test_sub_update_keeps_a_dropped_node_that_a_chain_uses(monkeypatch):
+    from v2rm.models.aether import AetherSettings
+    from v2rm.models.chain import HOP_PROFILE, ChainHop
+    from v2rm.models.enums import Protocol
+    from v2rm.models.profile import Profile
+    from v2rm.store.profiles import ProfileStore
+
+    _mock_fetch(monkeypatch, "trojan://pw@k1.example.com:443#Keep\ntrojan://pw@k2.example.com:443#Used")
+    runner.invoke(app, ["sub", "add", "https://example.com/sub-chain", "--name", "ChainSub"])
+    store = ProfileStore()
+    warp = store.add(Profile(name="WARP", protocol=Protocol.AETHER, aether=AetherSettings()))
+    used = next(p for p in store.list() if p.name == "Used")
+    store.add(
+        Profile(
+            name="via-warp",
+            protocol=Protocol.CHAIN,
+            chain=[ChainHop(HOP_PROFILE, warp.id, warp.name), ChainHop(HOP_PROFILE, used.id, used.name)],
+        )
+    )
+
+    _mock_fetch(monkeypatch, "trojan://pw@k1.example.com:443#Keep")  # the provider dropped "Used"
+    result = runner.invoke(app, ["sub", "update", "ChainSub"])
+    assert result.exit_code == 0, result.output
+    assert "chain(s) use them: via-warp" in result.output
+    assert any(p.name == "Used" for p in ProfileStore().list())
+
+    forced = runner.invoke(app, ["sub", "update", "ChainSub", "--force"])
+    assert forced.exit_code == 0, forced.output
+    assert not any(p.name == "Used" for p in ProfileStore().list())
+
+
+def test_sub_remove_warns_about_chains_that_use_its_profiles(monkeypatch):
+    from v2rm.models.chain import HOP_PROFILE, ChainHop
+    from v2rm.models.enums import Protocol
+    from v2rm.models.profile import Profile
+    from v2rm.store.profiles import ProfileStore
+
+    _mock_fetch(monkeypatch, "trojan://pw@r1.example.com:443#Member\ntrojan://pw@r2.example.com:443#Other")
+    runner.invoke(app, ["sub", "add", "https://example.com/sub-rm", "--name", "RmSub"])
+    store = ProfileStore()
+    member, other = (next(p for p in store.list() if p.name == n) for n in ("Member", "Other"))
+    store.add(
+        Profile(
+            name="uses-sub",
+            protocol=Protocol.CHAIN,
+            chain=[ChainHop(HOP_PROFILE, member.id, "Member"), ChainHop(HOP_PROFILE, other.id, "Other")],
+        )
+    )
+    # The chain is not a member of the subscription, so removing the subscription leaves it behind
+    # (broken); the command says so before it goes ahead.
+    result = runner.invoke(app, ["sub", "remove", "RmSub", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "will stop working: uses-sub" in result.output

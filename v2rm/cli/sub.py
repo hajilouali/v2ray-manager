@@ -205,6 +205,19 @@ def update_subscription(
             )
             result.removed_ids = [i for i in result.removed_ids if i != state.active_profile_id]
 
+        # A node the provider dropped may be a hop of a chain: removing it would break the chain.
+        from v2rm.cli.chain import chains_using
+
+        in_chains = {pid: chains_using(pid, profile_store) for pid in result.removed_ids}
+        in_chains = {pid: chains for pid, chains in in_chains.items() if chains}
+        if in_chains and not force:
+            names = ", ".join(sorted({c.name for chains in in_chains.values() for c in chains}))
+            console.print(
+                f"  [yellow]Kept {len(in_chains)} profile(s) the subscription no longer lists, because "
+                f"chain(s) use them: {escape(names)}.[/yellow] Re-run with --force to remove them anyway."
+            )
+            result.removed_ids = [i for i in result.removed_ids if i not in in_chains]
+
         for p in result.added:
             p.source = ProfileSource.SUBSCRIPTION
             p.subscription_id = sub.id
@@ -240,6 +253,15 @@ def remove_subscription(
     sub = sub_store.resolve(ref)
 
     members = profile_store.list_by_subscription(sub.id)
+
+    from v2rm.cli.chain import chains_using
+
+    member_ids = {m.id for m in members}
+    broken = sorted({c.name for m in members for c in chains_using(m.id, profile_store) if c.id not in member_ids})
+    if broken:
+        console.print(
+            f"[yellow]Chain(s) that use these profiles will stop working: {escape(', '.join(broken))}.[/yellow]"
+        )
     if not yes and not typer.confirm(f"Remove subscription '{sub.name}' and its {len(members)} profile(s)?"):
         raise typer.Exit()
 
