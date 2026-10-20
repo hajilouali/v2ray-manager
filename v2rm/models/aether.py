@@ -97,6 +97,8 @@ class AetherSettings:
     fragment: bool = False
     fragment_size: str = ""  # bytes: "8-16" or "10"
     fragment_delay: str = ""  # ms: "2-10" or "5"
+    # Make the first split fall in the middle of the server name, so an SNI filter never sees it whole.
+    fragment_sni: bool = False
 
     # TLS knobs of the tunnel handshakes.
     sni: str = ""
@@ -160,6 +162,7 @@ class AetherSettings:
             "fragment": self.fragment,
             "fragment_size": self.fragment_size,
             "fragment_delay": self.fragment_delay,
+            "fragment_sni": self.fragment_sni,
             "sni": self.sni,
             "ech": self.ech,
             "ech_dns": self.ech_dns,
@@ -213,6 +216,7 @@ class AetherSettings:
             fragment=bool(data.get("fragment", False)),
             fragment_size=_str(data, "fragment_size"),
             fragment_delay=_str(data, "fragment_delay"),
+            fragment_sni=bool(data.get("fragment_sni", False)),
             sni=_str(data, "sni"),
             ech=_str(data, "ech"),
             ech_dns=_str(data, "ech_dns"),

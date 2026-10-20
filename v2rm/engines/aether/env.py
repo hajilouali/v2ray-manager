@@ -119,6 +119,8 @@ def build_environment(
             env["AETHER_MASQUE_H2_FRAGMENT_SIZE"] = settings.fragment_size
         if settings.fragment_delay:
             env["AETHER_MASQUE_H2_FRAGMENT_DELAY"] = settings.fragment_delay
+        if settings.fragment_sni:
+            env["AETHER_MASQUE_H2_FRAGMENT_SNI"] = "1"
         if transport != "h2":
             notes.append(
                 "Fragmentation splits the TLS ClientHello of the HTTP/2 carrier and of the calls to the WARP "

@@ -126,7 +126,12 @@ def _show_aether(p: Profile) -> None:
     _line("ip", s.ip or "v4 (default)")
     _line("noize", s.noize or "Aether's default for the mode")
     if s.fragment:
-        _line("fragment", f"on (size {s.fragment_size or '8-16'} B, delay {s.fragment_delay or '2-10'} ms)")
+        _line(
+            "fragment",
+            f"on (size {s.fragment_size or '8-16'} B, delay {s.fragment_delay or '2-10'} ms"
+            + (", first split inside the server name" if s.fragment_sni else "")
+            + ")",
+        )
     _line("sni", s.sni)
     _line("ech", "auto" if s.ech.lower() == "auto" else ("a config" if s.ech else ""))
     _line("tls", ", ".join(x for x in (f"ciphers {s.tls_ciphers}" if s.tls_ciphers else "", f"groups {s.tls_groups}" if s.tls_groups else "", "no GREASE" if s.disable_grease else "") if x))

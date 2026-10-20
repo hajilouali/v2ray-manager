@@ -200,3 +200,16 @@ def test_the_menu_reports_a_mistake_instead_of_crashing():
     assert result.exit_code == 0, result.output
     assert "noize must be" in result.output
     assert ProfileStore().list() == []
+
+
+def test_the_first_split_can_be_placed_inside_the_server_name():
+    result = add("--h2", "--fragment", "--fragment-sni")
+    assert result.exit_code == 0, result.output
+    assert stored().aether.fragment_sni is True
+    shown = runner.invoke(app, ["profile", "show", stored().id])
+    assert "first split inside the server name" in shown.output
+
+
+def test_fragment_sni_without_fragment_is_refused():
+    result = add("--fragment-sni")
+    assert result.exit_code != 0 and "only take effect" in str(result.exception)

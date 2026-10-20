@@ -144,6 +144,12 @@ def add_aether_command(
     ),
     fragment_size: str | None = typer.Option(None, "--fragment-size", help="Fragment size in bytes: N or A-B (default 8-16)."),
     fragment_delay: str | None = typer.Option(None, "--fragment-delay", help="Delay between fragments in ms: N or A-B (default 2-10)."),
+    fragment_sni: bool = typer.Option(
+        False,
+        "--fragment-sni",
+        help="Make the first split fall in the middle of the server name, so an SNI filter never sees it whole "
+        "(an Aether setting that is not in its --help, read from its source).",
+    ),
     sni: str | None = typer.Option(None, "--sni", help="Server name for the MASQUE handshakes (default www.cloudflare.com)."),
     ech: str | None = typer.Option(None, "--ech", help="Encrypted ClientHello: 'auto' (looked up) or a base64 config."),
     ech_dns: str | None = typer.Option(None, "--ech-dns", help="Resolver for --ech auto: udp://ip, tcp://ip or an https:// DoH URL."),
@@ -226,6 +232,7 @@ def add_aether_command(
         fragment=fragment,
         fragment_size=(fragment_size or "").strip(),
         fragment_delay=(fragment_delay or "").strip(),
+        fragment_sni=fragment_sni,
         sni=(sni or "").strip(),
         ech=(ech or "").strip(),
         ech_dns=(ech_dns or "").strip(),

@@ -153,3 +153,10 @@ def test_the_link_of_a_shown_profile_adds_the_same_profile_back():
     assert runner.invoke(app, ["add", link]).exit_code == 0
     (stored,) = ProfileStore().list()
     assert stored.aether.fragment and stored.aether.route_block == ["ads.example"] and stored.name == "orig"
+
+
+def test_fragment_sni_survives_a_link():
+    original = profile(transport="h2", fragment=True, fragment_sni=True)
+    link = to_link(original)
+    assert "fragment_sni=1" in link
+    assert parse_link(link).aether.fragment_sni is True

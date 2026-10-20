@@ -277,3 +277,8 @@ def test_build_profile_validates_and_names_it():
     assert build_profile(AetherSettings(), name="  my warp ").name == "my warp"
     with pytest.raises(ProfileValidationError):
         build_profile(AetherSettings(transport="h9"))
+
+
+def test_fragment_sni_needs_fragmentation_turned_on():
+    ok(fragment=True, fragment_sni=True)
+    bad("only take effect", fragment_sni=True)

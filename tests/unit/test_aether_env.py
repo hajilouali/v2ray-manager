@@ -280,3 +280,10 @@ def test_describing_an_environment_hides_secrets():
     assert "AETHER_UPSTREAM=socks5://alice:***@127.0.0.1:1080" in lines
     assert "AETHER_ACCESS_CLIENT_SECRET=***" in lines
     assert "AETHER_SOCKS=127.0.0.1:1" in lines
+
+
+def test_splitting_inside_the_server_name_is_opt_in_and_needs_fragmentation():
+    on = env_for(transport="h2", fragment=True, fragment_sni=True)
+    assert on["AETHER_MASQUE_H2_FRAGMENT_SNI"] == "1"
+    assert "AETHER_MASQUE_H2_FRAGMENT_SNI" not in env_for(transport="h2", fragment=True)
+    assert "AETHER_MASQUE_H2_FRAGMENT_SNI" not in env_for(transport="h2")

@@ -274,8 +274,8 @@ def validate_settings(settings: AetherSettings) -> None:
     # Obfuscation and fragmentation.
     _fragment_range(settings.fragment_size, "fragment size", 1)
     _fragment_range(settings.fragment_delay, "fragment delay", 0)
-    if (settings.fragment_size or settings.fragment_delay) and not settings.fragment:
-        raise ProfileValidationError("fragment size/delay only take effect with fragmentation turned on")
+    if (settings.fragment_size or settings.fragment_delay or settings.fragment_sni) and not settings.fragment:
+        raise ProfileValidationError("fragment size/delay/sni only take effect with fragmentation turned on")
 
     # TLS.
     if settings.sni and (_is_ip(settings.sni.strip("[]")) or not valid_domain(settings.sni.strip())):
@@ -396,6 +396,7 @@ LINK_FIELDS = {
     "fragment": "fragment",
     "fragment_size": "fragment_size",
     "fragment_delay": "fragment_delay",
+    "fragment_sni": "fragment_sni",
     "sni": "sni",
     "ech": "ech",
     "ech_dns": "ech_dns",
