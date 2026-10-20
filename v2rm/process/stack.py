@@ -264,6 +264,17 @@ def plan_stack(
     hops = resolve_hops(profile, store)
     check_composition(hops, profile.name)
 
+    # Internal ports must never collide with the ports the user asked for (a user port inside the
+    # range the system hands out for ephemeral ones could otherwise come back from `ports`).
+    taken = {socks_port, http_port}
+
+    def allocate(avoid: int | None = None) -> int:
+        while True:
+            port = ports(avoid=avoid)
+            if port not in taken:
+                taken.add(port)
+                return port
+
     plan = StackPlan(stages=[])
     previous: ProxyEndpoint | None = None
     start = 0
@@ -278,10 +289,12 @@ def plan_stack(
         engine, _ = resolve_engine(member, preferred_engine)
         plan.hops.append(member.name)
         if engine == EngineKind.AETHER:
-            previous = _plan_aether(plan, member, last, previous, route_plan, socks_port, http_port, listen_address, auth, ports)
+            previous = _plan_aether(
+                plan, member, last, previous, route_plan, socks_port, http_port, listen_address, auth, allocate
+            )
         else:
             previous = _plan_engine(
-                plan, member, engine, last, previous, route_plan, socks_port, http_port, listen_address, auth, ports
+                plan, member, engine, last, previous, route_plan, socks_port, http_port, listen_address, auth, allocate
             )
     return plan
 

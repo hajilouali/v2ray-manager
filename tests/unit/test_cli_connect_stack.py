@@ -287,7 +287,8 @@ def test_testing_an_aether_profile_starts_a_throwaway_stack(fake_temp_stack):
     assert "OK WARP" in result.output and "120 ms" in result.output
     assert "can take a minute or two" in result.output
     assert "using cloudflare edge 1.1.1.1:443" in result.output
-    assert "Note: First connection" in result.output
+    assert result.output.count("First connection of") == 1  # said once, before the wait, not again after
+    assert result.output.index("First connection of") < result.output.index("can take a minute or two")
     assert len(fake_temp_stack) == 1
 
 
@@ -348,3 +349,52 @@ def test_test_all_includes_stack_profiles(fake_temp_stack):
         cli_test._test_one = original
     assert result.exit_code == 0, result.output
     assert sorted(calls) == ["WARP", "trojan"]
+
+
+def test_tests_of_profiles_that_share_a_warp_identity_take_turns(monkeypatch):
+    """`test --all` runs tests in parallel; a profile and a chain that contains it share one WARP
+    identity, and two tunnels on one identity can knock each other over."""
+    import contextlib
+    import threading
+    import time
+
+    import v2rm.cli.test as cli_test
+
+    warp, server = add_aether("shared"), add_trojan("srv")
+    chain = add_chain("via-shared", warp, server)
+    other = add_aether("separate")
+    running: list[str] = []
+    overlaps: list[tuple[str, ...]] = []
+    guard = threading.Lock()
+
+    @contextlib.contextmanager
+    def fake_stack(profile, *args, **kwargs):
+        with guard:
+            running.append(profile.name)
+            if {"shared", "via-shared"} <= set(running):
+                overlaps.append(tuple(running))
+        time.sleep(0.3)
+        try:
+            yield None
+        finally:
+            with guard:
+                running.remove(profile.name)
+
+    monkeypatch.setattr(supervisor, "run_temporary_stack", fake_stack)
+    monkeypatch.setattr(
+        cli_test, "run_connectivity_test",
+        lambda port, timeout=10.0, auth=None, urls=None: speedtest.TestResult(ok=True, latency_ms=1, throughput_mbps=1, url="u"),
+    )
+
+    results = {}
+    threads = [
+        threading.Thread(target=lambda p=p: results.__setitem__(p.name, cli_test._test_one(p, 5.0)))
+        for p in (warp, chain, other)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert all(r.ok for r in results.values()) and len(results) == 3
+    assert overlaps == []  # the two that share an identity never ran at the same moment

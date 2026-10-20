@@ -402,3 +402,21 @@ def test_the_start_timeout_can_be_raised_by_the_user(monkeypatch):
     assert stack.aether_start_timeout() == 120.0
     monkeypatch.setenv("V2RM_AETHER_START_TIMEOUT", "1")
     assert stack.aether_start_timeout() == 5.0
+
+
+def test_an_internal_port_never_collides_with_the_ports_the_user_asked_for():
+    """The user's ports can sit inside the range the system hands out for ephemeral ones."""
+    warp, server = add_aether(), add_trojan()
+    numbers = iter([10808, 10809, 10808, 41000, 41001, 41002, 41003])  # it proposes the user's own ports first
+    p = stack.plan_stack(
+        add_chain("c", server, warp, add_trojan("two")),
+        ProfileStore(),
+        preferred_engine=None,
+        route_plan=GLOBAL,
+        socks_port=10808,
+        http_port=10809,
+        ports=lambda avoid=None: next(numbers),
+    )
+    internal = [s.socks_port for s in p.stages[:-1]] + [s.http_port for s in p.stages[:-1] if s.http_port]
+    assert 10808 not in internal and 10809 not in internal
+    assert len(internal) == len(set(internal))

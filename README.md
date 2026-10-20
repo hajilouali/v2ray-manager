@@ -292,6 +292,10 @@ The name comes from the destination the client gave, **or — when the client on
 
 `--upstream socks5://127.0.0.1:1080` (or `http://user:pass@host:8080`) makes Aether dial out through a proxy already running on this machine — another VPN client, a Tor client, an Xray you run yourself. A SOCKS5 proxy carries UDP too; an HTTP proxy carries TCP only, so v2rm then uses the HTTP/2 carrier by itself (and refuses `--h3`, `wg` and `gool-classic`, which need UDP). The password is handed to Aether through its environment, never on a command line.
 
+### Everything else Aether can do
+
+Aether has more than v2rm has flags for. Anything else is passed straight through with `--env AETHER_NAME=value` (repeatable, stored in the profile; `aether --help` lists every `AETHER_*` variable): Tor or Psiphon around the tunnel (`--env AETHER_TOR=chain`, `AETHER_TOR=reverse`, `AETHER_TOR=only`; `--env AETHER_PSIPHON=chain --env AETHER_PSIPHON_REGION=DE`), Zero Trust enrolment (`AETHER_TEAM`, `AETHER_ACCESS_CLIENT_ID`, `AETHER_ACCESS_CLIENT_SECRET`), and so on. v2rm refuses only the variables it owns (where Aether listens, keeps its state and dials out) and never prints the values of the ones that look like secrets. Tor and Psiphon open a second proxy of their own (`127.0.0.1:1820` / `:1821` unless `AETHER_TOR_BIND` / `AETHER_PSIPHON_BIND` say otherwise) that v2rm does not manage; the proxy v2rm serves, checks and stops is the main one.
+
 ### Sharing a setup: the `aether://` link
 
 `v2rm profile show <id> --link` prints an `aether://MODE?param=value&…#name` link and `v2rm add "aether://…"` (or a line in a list of links) adds it again, so a setup that works on your network — `aether://masque?transport=h2&fragment=1&noize=gfw#h2-fragment` — can be passed around like a `vless://` link. Only what differs from the defaults is written, and nothing secret: the extra `AETHER_*` settings and an upstream proxy that has a login are left out (v2rm says so). The link format is v2rm's own convention, like `masque://`.

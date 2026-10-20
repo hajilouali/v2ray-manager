@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+import contextlib
+import threading
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import typer
@@ -38,6 +40,25 @@ AETHER_TEST_NOTE = (
 )
 
 _free_port = free_port
+
+# `test --all` runs several tests at once, and two Aether profiles (or an Aether profile and a chain
+# that contains it) share one WARP identity and one gateway cache: two tunnels on one identity
+# can knock each other over. Tests that share an identity take turns.
+_identity_locks: dict[str, threading.Lock] = {}
+_identity_locks_guard = threading.Lock()
+
+
+@contextlib.contextmanager
+def _identities_held(profile_ids: Iterable[str]):
+    with _identity_locks_guard:
+        locks = [_identity_locks.setdefault(pid, threading.Lock()) for pid in sorted(set(profile_ids))]
+    for lock in locks:  # always in the same (sorted) order, so two tests can never wait on each other
+        lock.acquire()
+    try:
+        yield
+    finally:
+        for lock in reversed(locks):
+            lock.release()
 
 
 def _progress(line: str) -> None:
@@ -111,18 +132,19 @@ def _test_stack(
     socks_port = _free_port()
     http_port = _free_port(avoid=socks_port)
     try:
-        with supervisor.run_temporary_stack(
-            profile,
-            preferred_engine,
-            socks_port,
-            http_port,
-            start_timeout=CONNECT_POLL_TIMEOUT,
-            auth=auth,
-            notes=notes,
-            progress=progress,
-            store=store,
-        ):
-            return run_connectivity_test(socks_port, timeout=timeout, auth=auth)
+        with _identities_held(stack.aether_profile_ids(profile, store)):
+            with supervisor.run_temporary_stack(
+                profile,
+                preferred_engine,
+                socks_port,
+                http_port,
+                start_timeout=CONNECT_POLL_TIMEOUT,
+                auth=auth,
+                notes=notes,
+                progress=progress,
+                store=store,
+            ):
+                return run_connectivity_test(socks_port, timeout=timeout, auth=auth)
     except V2rmError as exc:
         return TestResult(ok=False, error=str(exc))
 
@@ -161,12 +183,20 @@ def test_command(
         raise V2rmError("Specify a profile id/name, or --all")
     profile = store.resolve(ref)
     notes: list[str] = []
-    if stack.uses_stack(profile) and stack.aether_profile_ids(profile, store):
-        console.print(f"[dim]{AETHER_TEST_NOTE}[/dim]")
+    if stack.uses_stack(profile):
+        aether_ids = stack.aether_profile_ids(profile, store)
+        for profile_id in aether_ids:  # said before the wait: it is about to call Cloudflare
+            member = store.get(profile_id)
+            first = stack.registration_note(member) if member else None
+            if first:
+                console.print(f"[yellow]Note:[/yellow] {escape(first)}")
+        if aether_ids:
+            console.print(f"[dim]{AETHER_TEST_NOTE}[/dim]")
     result = _test_one(profile, timeout, preferred, auth, notes, progress=_progress)
     _print_single(profile, result)
     for note in notes:
-        console.print(f"[yellow]Note:[/yellow] {escape(note)}")
+        if not note.startswith(stack.FIRST_CONNECTION):  # already shown above
+            console.print(f"[yellow]Note:[/yellow] {escape(note)}")
     if profile_is_serverless(profile):
         console.print(f"[dim]{escape(SERVERLESS_NOTE)}[/dim]")
 
