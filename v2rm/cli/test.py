@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import typer
@@ -16,7 +17,7 @@ from v2rm.models.enums import EngineKind
 from v2rm.models.profile import Profile
 from v2rm.net.ports import free_port
 from v2rm.net.speedtest import TestResult, run_connectivity_test
-from v2rm.process import supervisor
+from v2rm.process import stack, supervisor
 from v2rm.routing.presets import GLOBAL
 from v2rm.store.auth import AuthStore
 from v2rm.store.profiles import ProfileStore
@@ -31,7 +32,16 @@ SERVERLESS_NOTE = (
 )
 
 
+AETHER_TEST_NOTE = (
+    "Testing an Aether connection starts its tunnel: Aether looks for a working gateway first, which can "
+    "take a minute or two on a filtered network."
+)
+
 _free_port = free_port
+
+
+def _progress(line: str) -> None:
+    console.print(f"  [dim]{escape(line)}[/dim]")
 
 
 def _test_one(
@@ -40,6 +50,7 @@ def _test_one(
     preferred_engine: EngineKind | None = None,
     auth: ProxyAuth | None = None,
     notes: list[str] | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> TestResult:
     """Always tests through a fresh, throwaway engine instance on ephemeral
     ports -- forced to the 'global' routing preset so the result reflects
@@ -48,6 +59,9 @@ def _test_one(
     connected, but it never risks disturbing that connection and stays
     safe to run several of these at once for `--all`. The throwaway proxy
     requires the same login as the real one, and the test sends it."""
+    if stack.uses_stack(profile):
+        return _test_stack(profile, timeout, preferred_engine, auth, notes, progress)
+
     engine, _ = resolve_engine(profile, preferred_engine)
 
     socks_port = _free_port()
@@ -56,6 +70,57 @@ def _test_one(
     try:
         with supervisor.run_temporary(
             profile, engine, GLOBAL, socks_port, http_port, start_timeout=CONNECT_POLL_TIMEOUT, auth=auth, notes=notes
+        ):
+            return run_connectivity_test(socks_port, timeout=timeout, auth=auth)
+    except V2rmError as exc:
+        return TestResult(ok=False, error=str(exc))
+
+
+def _test_stack(
+    profile: Profile,
+    timeout: float,
+    preferred_engine: EngineKind | None,
+    auth: ProxyAuth | None,
+    notes: list[str] | None,
+    progress: Callable[[str], None] | None,
+) -> TestResult:
+    """An Aether profile or a chain. One WARP identity can carry one live tunnel, so a profile
+    that is connected right now is tested through its live proxy instead of a second tunnel,
+    and one that shares an identity with the live connection is not tested at all."""
+    store = ProfileStore()
+    live = supervisor.status()
+    if live.get("connected"):
+        loopback = supervisor.client_address(str(live.get("listen_address", "127.0.0.1"))) == "127.0.0.1"
+        if live.get("profile_id") == profile.id and live.get("state") != "starting" and loopback:
+            try:
+                live_auth = auth if live.get("authenticated") else None
+                return run_connectivity_test(int(live["socks_port"]), timeout=timeout, auth=live_auth)
+            except V2rmError as exc:
+                return TestResult(ok=False, error=str(exc))
+        shared = set(live.get("aether_ids") or []) & set(stack.aether_profile_ids(profile, store))
+        if shared or live.get("profile_id") == profile.id:
+            return TestResult(
+                ok=False,
+                error=(
+                    f"not tested: '{live.get('profile_name', 'the live connection')}' is running with the same WARP "
+                    "identity, and two tunnels can't share one. Test it with `v2rm status` / curl through the live "
+                    "proxy, or disconnect first."
+                ),
+            )
+
+    socks_port = _free_port()
+    http_port = _free_port(avoid=socks_port)
+    try:
+        with supervisor.run_temporary_stack(
+            profile,
+            preferred_engine,
+            socks_port,
+            http_port,
+            start_timeout=CONNECT_POLL_TIMEOUT,
+            auth=auth,
+            notes=notes,
+            progress=progress,
+            store=store,
         ):
             return run_connectivity_test(socks_port, timeout=timeout, auth=auth)
     except V2rmError as exc:
@@ -96,7 +161,9 @@ def test_command(
         raise V2rmError("Specify a profile id/name, or --all")
     profile = store.resolve(ref)
     notes: list[str] = []
-    result = _test_one(profile, timeout, preferred, auth, notes)
+    if stack.uses_stack(profile) and stack.aether_profile_ids(profile, store):
+        console.print(f"[dim]{AETHER_TEST_NOTE}[/dim]")
+    result = _test_one(profile, timeout, preferred, auth, notes, progress=_progress)
     _print_single(profile, result)
     for note in notes:
         console.print(f"[yellow]Note:[/yellow] {escape(note)}")

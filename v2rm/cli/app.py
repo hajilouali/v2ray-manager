@@ -8,7 +8,9 @@ from rich.markup import escape
 
 from v2rm import __version__
 from v2rm.cli.add import add_app
+from v2rm.cli.aether import aether_app
 from v2rm.cli.backup import export_command, import_command
+from v2rm.cli.chain import chain_app
 from v2rm.cli.connect import connect_command, disconnect_command, status_command
 from v2rm.cli.core import core_app
 from v2rm.cli.doctor import doctor_command
@@ -27,7 +29,7 @@ err_console = Console(stderr=True)
 
 app = typer.Typer(
     name="v2rm",
-    help="A friendly CLI manager for Xray-core and sing-box on Linux.",
+    help="A friendly CLI manager for Xray-core, sing-box and Aether (Cloudflare WARP) on Linux.",
     add_completion=True,
     no_args_is_help=False,
 )
@@ -46,6 +48,8 @@ app.add_typer(core_app, name="core")
 app.add_typer(sub_app, name="sub")
 app.add_typer(route_app, name="route")
 app.add_typer(port_app, name="port")
+app.add_typer(chain_app, name="chain")
+app.add_typer(aether_app, name="aether")
 
 
 @app.callback(invoke_without_command=True)

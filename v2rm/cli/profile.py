@@ -26,7 +26,7 @@ from v2rm.store.state import AppStateStore
 console = Console()
 profile_app = typer.Typer(help="Manage saved configs (profiles).")
 
-_TYPE_CHOICES = "vless, vmess, trojan, shadowsocks, hysteria2, tuic, masque, raw"
+_TYPE_CHOICES = "vless, vmess, trojan, shadowsocks, hysteria2, tuic, masque, raw, aether, chain"
 
 
 def _matches_type(profile: Profile, wanted: str) -> bool:
@@ -107,6 +107,63 @@ def _show_raw(p: Profile) -> None:
         _line("note", "no remote server: a direct connection that evades DPI, not a tunnel")
 
 
+def _show_aether(p: Profile) -> None:
+    from v2rm.engines.aether import files as aether_files
+    from v2rm.models.aether import MASQUE_MODES
+    from v2rm.net.proxy_url import redact
+
+    s = p.aether
+    assert s is not None
+    _line("type", f"aether -- {s.label}")
+    if s.mode in MASQUE_MODES:
+        carrier = {"h3": "HTTP/3 (QUIC, UDP)", "h2": "HTTP/2 (TCP)"}.get(s.transport, "HTTP/3 (QUIC, UDP) -- Aether's default")
+        _line("carrier", carrier)
+    _line("gateway", s.outer or "found by scanning")
+    if s.inner or s.mode.value in ("gool", "gool-classic", "mim"):
+        _line("inner hop", s.inner or "found by scanning")
+    _line("h2 peer", s.h2_peer)
+    _line("scan", s.scan or "balanced (default)")
+    _line("ip", s.ip or "v4 (default)")
+    _line("noize", s.noize or "Aether's default for the mode")
+    if s.fragment:
+        _line("fragment", f"on (size {s.fragment_size or '8-16'} B, delay {s.fragment_delay or '2-10'} ms)")
+    _line("sni", s.sni)
+    _line("ech", "auto" if s.ech.lower() == "auto" else ("a config" if s.ech else ""))
+    _line("tls", ", ".join(x for x in (f"ciphers {s.tls_ciphers}" if s.tls_ciphers else "", f"groups {s.tls_groups}" if s.tls_groups else "", "no GREASE" if s.disable_grease else "") if x))
+    _line("upstream", redact(s.upstream))
+    if s.route_block or s.route_direct:
+        _line("routing", f"{len(s.route_block)} block, {len(s.route_direct)} direct rule(s); name sniffing {'on' if s.route_sniff else 'off'}")
+        for rule in s.route_block:
+            _line("  block", rule)
+        for rule in s.route_direct:
+            _line("  direct", rule)
+    _line("exit only", s.exit_loc)
+    _line("reconnect", f"quick reconnect {'on' if s.quick_reconnect else 'off'}" + (f", {s.reconnect_secs} s between attempts" if s.reconnect_secs else ""))
+    if s.env:
+        _line("extra env", ", ".join(sorted(s.env)))  # names only: values can be secrets
+    base = aether_files.config_path(p.id)
+    registered, needed = aether_files.identity_state(base, s.mode)
+    _line("identity", f"{registered}/{needed} registered" + ("" if registered == needed else " (the first connection registers the rest)"))
+
+
+def _show_chain(p: Profile) -> None:
+    from v2rm.store.profiles import ProfileStore
+
+    store = ProfileStore()
+    _line("type", "chain -- each hop leaves through the one before it")
+    hops = p.chain or []
+    for number, hop in enumerate(hops, start=1):
+        if hop.is_proxy:
+            _line(f"hop {number}", f"{hop.label()} (a proxy already running)")
+            continue
+        member = store.get(hop.ref)
+        if member is None:
+            _line(f"hop {number}", f"{hop.label()}  [missing: it no longer exists]")
+        else:
+            _line(f"hop {number}", f"{member.name} ({member.type_label}, {member.server_display})")
+    _line("traffic", "you -> " + " -> ".join(h.label() for h in hops) + " -> the internet")
+
+
 def _show_link_based(p: Profile) -> None:
     _line("type", p.type_label)
     _line("server", p.server_display)
@@ -172,6 +229,10 @@ def show_profile(
     console.print(f"[bold]{escape(p.name)}[/bold] [dim]({p.id})[/dim]")
     if p.is_raw:
         _show_raw(p)
+    elif p.is_aether:
+        _show_aether(p)
+    elif p.is_chain:
+        _show_chain(p)
     else:
         _show_link_based(p)
     console.print(f"  source     {p.source.value}")
@@ -209,6 +270,13 @@ def edit_profile(
     }
     given = {k: v for k, v in given.items() if v is not None}
 
+    if (p.is_aether or p.is_chain) and set(given) - {"name"}:
+        kind = "an Aether profile" if p.is_aether else "a chain"
+        raise V2rmError(
+            f"{p.name} is {kind}: it has no server, port or credentials of its own to set. Run "
+            f"`v2rm profile edit {ref}` with no flags to edit its settings (only --name can be given)."
+        )
+
     if p.is_raw and set(given) - {"name"}:
         raise V2rmError(
             "A raw Xray profile is a complete config with no server, port or credentials of its own to set: "
@@ -217,6 +285,7 @@ def edit_profile(
 
     if not given:
         p = _edit_raw_in_editor(p) if p.is_raw else _edit_in_editor(p)
+        _validate_edited(p)
     else:
         for key, value in given.items():
             if key == "sni":
@@ -228,6 +297,25 @@ def edit_profile(
 
     store.update(p)
     console.print(f"[green]Updated[/green] {escape(p.name)} [dim]({p.id})[/dim]")
+
+
+def _validate_edited(profile: Profile) -> None:
+    """A hand edit of an Aether profile or a chain must still be one Aether and v2rm can run:
+    the same checks as when it was made, so a typo is caught now, not at connect time."""
+    from v2rm.errors import ProfileValidationError
+
+    try:
+        if profile.is_aether:
+            from v2rm.parsers.aether import validate_aether
+
+            validate_aether(profile)
+        elif profile.is_chain:
+            from v2rm.process import stack
+
+            store = ProfileStore()
+            stack.check_composition(stack.resolve_hops(profile, store), profile.name)
+    except ProfileValidationError as exc:
+        raise V2rmError(f"Not saved: {exc}") from exc
 
 
 def _edit_raw_in_editor(profile: Profile) -> Profile:
@@ -300,11 +388,31 @@ def remove_profile(
             f"'{p.name}' is the currently active profile. Disconnect first, or pass --force."
         )
 
-    if not yes and not typer.confirm(f"Remove profile '{p.name}' ({p.id})?"):
+    from v2rm.cli.chain import chains_using
+
+    users = chains_using(p.id, store)
+    if users and not force:
+        names = ", ".join(f"'{c.name}'" for c in users)
+        raise V2rmError(
+            f"'{p.name}' is a hop of the chain(s) {names}, which would stop working. "
+            "Remove those first, or pass --force."
+        )
+
+    prompt = f"Remove profile '{p.name}' ({p.id})?"
+    if p.is_aether:
+        prompt = f"Remove profile '{p.name}' ({p.id}) and delete its WARP identity (its private keys)?"
+    if not yes and not typer.confirm(prompt):
         raise typer.Exit()
 
     store.remove(p.id)
     console.print(f"[green]Removed[/green] {escape(p.name)}")
+    if p.is_aether:
+        from v2rm.engines.aether.files import remove_profile_state
+
+        if remove_profile_state(p.id):
+            console.print("  [dim]Its WARP identity and remembered gateways were deleted too.[/dim]")
+    if users:
+        console.print(f"  [yellow]Chains still pointing at it (now broken): {', '.join(escape(c.name) for c in users)}[/yellow]")
 
 
 @profile_app.command("rename")

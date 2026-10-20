@@ -7,6 +7,7 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
+from v2rm.cli.add_aether import add_aether_command
 from v2rm.cli.groups import DefaultCommandGroup
 from v2rm.errors import V2rmError
 from v2rm.models.profile import Profile
@@ -19,7 +20,7 @@ console = Console()
 
 add_app = typer.Typer(
     cls=DefaultCommandGroup,
-    help="Add configs: `v2rm add <link>` (also `-` for stdin, `-f FILE`, `--json FILE`) or `v2rm add masque ...`.",
+    help="Add configs: `v2rm add <link>` (also `-` for stdin, `-f FILE`, `--json FILE`), `v2rm add masque ...` or `v2rm add aether ...`.",
     context_settings={"ignore_unknown_options": True},
     no_args_is_help=False,
 )
@@ -178,3 +179,6 @@ def add_masque_command(
 ) -> None:
     """Add a MASQUE (HTTP/2 or HTTP/3 CONNECT) proxy. Runs on Xray-core."""
     add_masque_profile(server, port, sni, alpn, user, password, path, host, list(header), fp, name)
+
+
+add_app.command("aether")(add_aether_command)

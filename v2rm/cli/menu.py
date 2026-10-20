@@ -3,7 +3,7 @@ from __future__ import annotations
 import typer
 from rich.console import Console
 from rich.markup import escape
-from rich.prompt import IntPrompt, Prompt
+from rich.prompt import Confirm, IntPrompt, Prompt
 
 from v2rm.cli.connect import connect_command, disconnect_command, status_command
 from v2rm.cli.sub import update_subscription
@@ -111,6 +111,72 @@ def _add_masque_flow() -> None:
     _safe(add_masque_profile, server, port, sni, alpn, user or None, password or None, path, "", [], "", name or None)
 
 
+def _add_aether_flow() -> None:
+    from v2rm.cli.add_aether import add_aether_profile
+    from v2rm.models.aether import MASQUE_MODES, TWO_HOP_MODES, AetherMode, AetherSettings
+
+    modes = [m.value for m in AetherMode]
+    console.print(
+        "  masque = WARP over MASQUE | wg = classic WireGuard | gool = WireGuard inside MASQUE (foreign exit) | "
+        "gool-classic = WireGuard in WireGuard | mim = MASQUE in MASQUE"
+    )
+    mode = AetherMode(Prompt.ask("Mode", choices=modes, default="masque"))
+    transport = ""
+    if mode in MASQUE_MODES:
+        transport = Prompt.ask("Carrier (h3 = QUIC over UDP, h2 = HTTP/2 over TCP)", choices=["h3", "h2"], default="h3")
+    fragment = False
+    fragment_size = fragment_delay = ""
+    if transport == "h2":
+        fragment = Confirm.ask("Fragment the TLS ClientHello (for firewalls that reset the WARP server name)?", default=False)
+        if fragment:
+            fragment_size = Prompt.ask("  Fragment size in bytes (N or A-B, empty = 8-16)", default="").strip()
+            fragment_delay = Prompt.ask("  Delay between fragments in ms (N or A-B, empty = 2-10)", default="").strip()
+    noize = Prompt.ask("Obfuscation (off/light/firewall/balanced/gfw/aggressive, empty = Aether's default)", default="").strip()
+    outer = inner = ""
+    if Confirm.ask("Name the gateway yourself instead of scanning for one?", default=False):
+        outer = Prompt.ask("  Gateway (ip:port; for gool-classic/mim the outer hop)").strip()
+        if mode in TWO_HOP_MODES:
+            inner = Prompt.ask("  Second hop (ip:port, empty = found by scanning)", default="").strip()
+    upstream = Prompt.ask("Dial out through a proxy already running here? (e.g. socks5://127.0.0.1:1080, empty = no)", default="").strip()
+    name = Prompt.ask("Name (empty = automatic)", default="").strip()
+    settings = AetherSettings(
+        mode=mode,
+        transport=transport,
+        fragment=fragment,
+        fragment_size=fragment_size,
+        fragment_delay=fragment_delay,
+        noize=noize,
+        outer=outer,
+        inner=inner,
+        upstream=upstream,
+    )
+    _safe(add_aether_profile, settings, name, None)
+
+
+def _add_chain_flow() -> None:
+    from v2rm.cli.chain import add_chain
+
+    profiles = [p for p in ProfileStore().list() if not p.is_chain]
+    if len(profiles) < 2:
+        console.print("[yellow]A chain needs at least two saved profiles -- add some first.[/yellow]")
+        return
+    console.print("Hops are listed the way the traffic travels: the first is closest to you, the last is what the internet sees.")
+    for i, p in enumerate(profiles, start=1):
+        console.print(f"  {i}) {escape(p.name)} [dim]({p.type_label}, {escape(p.server_display)})[/dim]")
+    answer = Prompt.ask("Hops, as numbers separated by spaces (a proxy address like socks5://127.0.0.1:1080 may come first)")
+    refs: list[str] = []
+    for token in answer.split():
+        if token.isdigit() and 1 <= int(token) <= len(profiles):
+            refs.append(profiles[int(token) - 1].id)
+        elif "://" in token:
+            refs.append(token)
+        else:
+            console.print(f"[yellow]'{escape(token)}' is not one of the numbers above.[/yellow]")
+            return
+    name = Prompt.ask("Name for the chain").strip()
+    _safe(add_chain, name, refs)
+
+
 def _add_subscription_flow() -> None:
     from v2rm.cli.sub import add_subscription
 
@@ -193,6 +259,8 @@ def run_menu() -> None:
                 update_subscription, None, all_subs=True, proxy=None, force=False, respect_interval=False
             ),
         ),
+        "15": ("Add an Aether (Cloudflare WARP) connection", _add_aether_flow),
+        "16": ("Make a chain of connections", _add_chain_flow),
     }
 
     try:
