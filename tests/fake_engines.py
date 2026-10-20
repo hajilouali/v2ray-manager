@@ -116,6 +116,9 @@ def stop_on_term() -> None:
 
 
 def aether() -> int:
+    if "--version" in sys.argv:
+        print("aether 0.0.0-fake")
+        return 0
     stop_on_term()
     env = os.environ
     record = env.get("AETHER_FAKE_RECORD")
