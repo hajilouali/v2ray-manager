@@ -8,14 +8,17 @@ import stat
 import tarfile
 import zipfile
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import requests
 
-from v2rm.constants import DEFAULT_USER_AGENT, ENGINE_SINGBOX, ENGINE_XRAY
+from v2rm.constants import DEFAULT_USER_AGENT, ENGINE_AETHER, ENGINE_SINGBOX, ENGINE_XRAY
 from v2rm.coredl.github import (
+    DEFAULT_AETHER_VARIANT,
     Release,
     ReleaseAsset,
+    aether_asset_name,
+    fetch_aether_release,
     fetch_singbox_release,
     fetch_xray_release,
     singbox_asset_name,
@@ -86,8 +89,88 @@ def _extract_tar_binary(data: bytes, binary_name: str) -> bytes:
     raise DownloadError(f"Archive did not contain a file named '{binary_name}'")
 
 
+def _verify_sha256_sidecar(data: bytes, asset: ReleaseAsset, release: Release) -> bool:
+    """A '<asset>.sha256' sidecar (sha256sum output: "<hex>  <name>"), as Aether publishes.
+    Returns False if there is none; a mismatch raises."""
+    sidecar = release.find(f"{asset.name}.sha256")
+    if sidecar is None:
+        return False
+    text = _download(sidecar.download_url).decode("utf-8", errors="replace")
+    match = re.search(r"\b([0-9a-fA-F]{64})\b", text)
+    if not match:
+        return False
+    expected = match.group(1).lower()
+    actual = hashlib.sha256(data).hexdigest()
+    if actual != expected:
+        raise ChecksumError(f"Checksum mismatch for {asset.name}: expected {expected}, got {actual}")
+    return True
+
+
+# Upper bounds for unpacking an archive we do not control: Aether's own is ~60 MB unpacked.
+_MAX_MEMBER_BYTES = 300 * 1024 * 1024
+_MAX_TOTAL_BYTES = 600 * 1024 * 1024
+
+
+def _member_path(name: str) -> PurePosixPath | None:
+    """The member's path inside the archive, or None if it is absolute or climbs out of it."""
+    path = PurePosixPath(name.replace("\\", "/"))
+    parts = [p for p in path.parts if p not in ("", ".")]
+    if not parts or path.is_absolute() or ".." in parts:
+        return None
+    return PurePosixPath(*parts)
+
+
+def _extract_tar_tree(data: bytes, binary_name: str, dest: Path, keep_dirs: tuple[str, ...] = ("pt",)) -> None:
+    """Unpack `binary_name` and the `keep_dirs` folders from a .tar.gz into `dest`.
+
+    Aether's archive is the program next to a `pt/` folder of helper programs (Tor and
+    Psiphon transports) that it looks for beside itself, so a binary alone is not enough.
+    Only regular files and directories are written: no links, no devices, nothing that
+    would land outside `dest`."""
+    dest.mkdir(parents=True, exist_ok=True)
+    root = dest.resolve()
+    with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
+        members = [(m, _member_path(m.name)) for m in tf.getmembers()]
+        members = [(m, p) for m, p in members if p is not None]
+
+        # Tolerate one wrapper folder around the whole archive.
+        if members and not any(p == PurePosixPath(binary_name) for _, p in members):
+            firsts = {p.parts[0] for _, p in members}
+            if len(firsts) == 1:
+                members = [(m, PurePosixPath(*p.parts[1:])) for m, p in members if len(p.parts) > 1]
+
+        found = False
+        total = 0
+        for member, rel in members:
+            top = rel.parts[0]
+            is_binary = len(rel.parts) == 1 and top == binary_name and member.isfile()
+            if not (is_binary or top in keep_dirs):
+                continue
+            target = (dest / rel).resolve()
+            if root != target and root not in target.parents:
+                continue
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            if not member.isfile():
+                continue
+            if member.size > _MAX_MEMBER_BYTES or total + member.size > _MAX_TOTAL_BYTES:
+                raise DownloadError(f"Archive member '{member.name}' is unreasonably large; refusing to unpack it")
+            total += member.size
+            extracted = tf.extractfile(member)
+            if extracted is None:
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(extracted.read())
+            if is_binary or member.mode & 0o111:
+                target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            found = found or is_binary
+    if not found:
+        raise DownloadError(f"Archive did not contain a file named '{binary_name}'")
+
+
 def _install_binary(engine: str, version: str, binary_bytes: bytes) -> Path:
-    binary_name = "xray" if engine == ENGINE_XRAY else "sing-box"
+    binary_name = paths.engine_binary_name(engine)
     version_dir = paths.engine_dir(engine) / version
     version_dir.mkdir(parents=True, exist_ok=True)
     binary_path = version_dir / binary_name
@@ -197,10 +280,56 @@ def install_singbox(
     return release.tag
 
 
+def _variant_marker() -> Path:
+    return paths.engine_dir(ENGINE_AETHER) / "variant.txt"
+
+
+def stored_aether_variant() -> str:
+    """The Aether build flavour (musl/gnu) installed last, so `core update` keeps it."""
+    marker = _variant_marker()
+    if marker.exists():
+        value = marker.read_text(encoding="utf-8").strip()
+        if value:
+            return value
+    return DEFAULT_AETHER_VARIANT
+
+
+def install_aether(
+    version: str | None = None,
+    include_prerelease: bool = False,
+    release: Release | None = None,
+    progress: Callable[[str], None] | None = None,
+    variant: str | None = None,
+) -> str:
+    """Download, verify and unpack an Aether release: the `aether` binary and the `pt/` folder
+    of helper programs it expects next to itself."""
+    release = release or fetch_aether_release(version, include_prerelease)
+    variant = variant or stored_aether_variant()
+    asset_name = aether_asset_name(variant=variant)
+    asset = release.find(asset_name)
+    if asset is None:
+        raise DownloadError(f"Release {release.tag} has no asset named '{asset_name}'")
+
+    _announce(progress, asset)
+    data = _download(asset.download_url)
+    if not _verify_digest_field(data, asset) and not _verify_sha256_sidecar(data, asset, release):
+        # Every Aether release carries one or the other. Unpacking and running a binary nobody
+        # vouched for is the one thing an installer must not do quietly.
+        raise ChecksumError(f"Release {release.tag} publishes no checksum for {asset.name}; refusing to install it")
+
+    version_dir = paths.engine_dir(ENGINE_AETHER) / release.tag
+    _extract_tar_tree(data, "aether", version_dir)
+    _variant_marker().write_text(variant, encoding="utf-8")
+    use_version(ENGINE_AETHER, release.tag)
+    return release.tag
+
+
 def fetch_release_for(engine: str, version: str | None = None, include_prerelease: bool = False) -> Release:
     """Release info for an engine, without downloading anything."""
     if engine == ENGINE_XRAY:
         return fetch_xray_release(version, include_prerelease)
+    if engine == ENGINE_AETHER:
+        return fetch_aether_release(version, include_prerelease)
     return fetch_singbox_release(version, include_prerelease)
 
 
@@ -208,8 +337,12 @@ def install_engine(
     engine: str,
     release: Release,
     progress: Callable[[str], None] | None = None,
+    variant: str | None = None,
 ) -> str:
-    """Install the given (already fetched) release of an engine."""
+    """Install the given (already fetched) release of an engine. `variant` only matters
+    for Aether (its musl or glibc build)."""
     if engine == ENGINE_XRAY:
         return install_xray(release=release, progress=progress)
+    if engine == ENGINE_AETHER:
+        return install_aether(release=release, progress=progress, variant=variant)
     return install_singbox(release=release, progress=progress)

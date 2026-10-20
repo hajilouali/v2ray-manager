@@ -71,9 +71,25 @@ def engine_current_version_file(engine: str) -> Path:
     return engine_dir(engine) / "current.txt"
 
 
+_BINARY_NAMES = {"xray": "xray", "singbox": "sing-box", "aether": "aether"}
+
+
+def engine_binary_name(engine: str) -> str:
+    return _BINARY_NAMES.get(engine, engine)
+
+
 def engine_binary_path(engine: str) -> Path:
-    binary_name = "xray" if engine == "xray" else "sing-box"
-    return engine_current_link(engine) / binary_name
+    return engine_current_link(engine) / engine_binary_name(engine)
+
+
+def aether_dir() -> Path:
+    """Where Aether's per-profile state lives: its WARP identities (private keys) and the
+    last-working-gateway cache. Under data, not cache: losing it means registering again."""
+    return data_dir() / "aether"
+
+
+def aether_profile_dir(profile_id: str) -> Path:
+    return aether_dir() / profile_id
 
 
 def run_dir() -> Path:

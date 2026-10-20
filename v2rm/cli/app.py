@@ -67,7 +67,7 @@ def version() -> None:
     from v2rm.coredl.install import current_version
 
     console.print(f"v2rm [bold]{__version__}[/bold]")
-    for engine in ("xray", "singbox"):
+    for engine in ("xray", "singbox", "aether"):
         v = current_version(engine)
         console.print(f"  {engine:<8} {v if v else '[dim]not installed[/dim]'}")
 

@@ -8,7 +8,7 @@ from typing import Any
 
 import requests
 
-from v2rm.constants import DEFAULT_USER_AGENT, GITHUB_API, SINGBOX_REPO, XRAY_REPO
+from v2rm.constants import AETHER_REPO, DEFAULT_USER_AGENT, GITHUB_API, SINGBOX_REPO, XRAY_REPO
 from v2rm.engines.versioning import parse_version
 from v2rm.errors import DownloadError
 
@@ -38,6 +38,28 @@ _ARCH_MAP_SINGBOX = {
     "armv7l": "armv7",
     "i386": "386",
     "i686": "386",
+}
+
+
+# Aether ships, per CPU, a glibc build (made on the newest Fedora, so it can need a newer
+# glibc than Debian/Ubuntu LTS have) and a fully static musl one that runs on any Linux.
+# musl is the default: "it starts" beats "it is the usual libc".
+AETHER_VARIANTS = ("musl", "gnu")
+DEFAULT_AETHER_VARIANT = "musl"
+
+_AETHER_ASSETS = {
+    # machine -> {variant: asset name}
+    "x86_64": {"gnu": "aether-linux-x86_64.tar.gz", "musl": "aether-linux-x86_64-musl.tar.gz"},
+    "aarch64": {"gnu": "aether-linux-arm64.tar.gz", "musl": "aether-linux-aarch64-musl.tar.gz"},
+    "armv7": {"gnu": "aether-linux-armv7.tar.gz", "musl": "aether-linux-armv7-musl.tar.gz"},
+}
+_AETHER_MACHINES = {
+    "x86_64": "x86_64",
+    "amd64": "x86_64",
+    "aarch64": "aarch64",
+    "arm64": "aarch64",
+    "armv7l": "armv7",
+    "armv7": "armv7",
 }
 
 
@@ -139,6 +161,21 @@ def fetch_xray_release(version: str | None = None, include_prerelease: bool = Fa
 
 def fetch_singbox_release(version: str | None = None, include_prerelease: bool = False) -> Release:
     return fetch_release(SINGBOX_REPO, version, include_prerelease)
+
+
+def fetch_aether_release(version: str | None = None, include_prerelease: bool = False) -> Release:
+    return fetch_release(AETHER_REPO, version, include_prerelease)
+
+
+def aether_asset_name(machine: str | None = None, variant: str | None = None) -> str:
+    machine = (machine or platform.machine()).lower()
+    variant = (variant or DEFAULT_AETHER_VARIANT).lower()
+    if variant not in AETHER_VARIANTS:
+        raise DownloadError(f"Unknown Aether build variant '{variant}'. Choose one of: {', '.join(AETHER_VARIANTS)}")
+    arch = _AETHER_MACHINES.get(machine)
+    if not arch:
+        raise DownloadError(f"No known Aether build for CPU architecture '{machine}'")
+    return _AETHER_ASSETS[arch][variant]
 
 
 def xray_asset_name(machine: str | None = None) -> str:

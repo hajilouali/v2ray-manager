@@ -14,6 +14,9 @@ ENV_CACHE_HOME = "V2RM_CACHE_HOME"
 GITHUB_API = "https://api.github.com"
 XRAY_REPO = "XTLS/Xray-core"
 SINGBOX_REPO = "SagerNet/sing-box"
+# Aether is AGPL-3.0 and v2rm is MIT: v2rm only downloads the official release binary and runs
+# it as a separate program, it never bundles or links Aether's code.
+AETHER_REPO = "CluvexStudio/Aether"
 
 # sing-box rule-set (.srs) sources -- see SagerNet/sing-geoip and SagerNet/sing-geosite,
 # branch "rule-set". Deprecated inline geoip/geosite fields are intentionally not used.
@@ -42,5 +45,11 @@ CONNECT_POLL_TIMEOUT = 2.0
 CONNECT_POLL_INTERVAL = 0.1
 DISCONNECT_GRACE_SECONDS = 3.0
 
+# Aether scans for a working Cloudflare gateway and proves the tunnel carries data before it opens
+# its SOCKS port, which takes seconds to minutes -- not the two seconds Xray needs.
+AETHER_START_TIMEOUT = 120.0
+AETHER_POLL_INTERVAL = 0.5
+
 ENGINE_XRAY = "xray"
 ENGINE_SINGBOX = "singbox"
+ENGINE_AETHER = "aether"

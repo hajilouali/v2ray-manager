@@ -5,20 +5,38 @@ from rich.console import Console
 from rich.table import Table
 
 from v2rm.coredl import install as installer
+from v2rm.coredl.github import AETHER_VARIANTS
 from v2rm.engines.versioning import compare_versions
 from v2rm.errors import DownloadError, V2rmError
 from v2rm.models.enums import EngineKind
 from v2rm.store.state import AppStateStore
 
 console = Console()
-core_app = typer.Typer(help="Manage the Xray-core and sing-box engine binaries.")
+core_app = typer.Typer(help="Manage the Xray-core, sing-box and Aether engine binaries.")
 
-_ENGINES = ("xray", "singbox")
+_ENGINES = ("xray", "singbox", "aether")
+# What `core use` can make the default for ordinary profiles. Aether only runs Aether profiles.
+_DEFAULT_ENGINES = ("xray", "singbox")
 
 
 def _check_engine(engine: str) -> None:
     if engine not in _ENGINES:
         raise V2rmError(f"Unknown engine '{engine}'. Choose one of: {', '.join(_ENGINES)}")
+
+
+def _check_variant(engine: str, variant: str | None) -> str | None:
+    if variant is None:
+        return None
+    if engine != "aether":
+        raise V2rmError("--variant only applies to aether.")
+    if variant.lower() not in AETHER_VARIANTS:
+        raise V2rmError(f"Unknown --variant '{variant}'. Choose one of: {', '.join(AETHER_VARIANTS)}")
+    return variant.lower()
+
+
+_VARIANT_HELP = (
+    "Aether only: 'musl' (default; a static build that runs on any Linux) or 'gnu' (needs a recent glibc)."
+)
 
 
 @core_app.command("list")
@@ -34,7 +52,8 @@ def list_engines() -> None:
     for engine in _ENGINES:
         versions = installer.installed_versions(engine)
         current = installer.current_version(engine)
-        active = (state.active_engine or EngineKind.XRAY).value == engine  # Xray unless `core use` said otherwise
+        # Xray unless `core use` said otherwise; Aether is never the default, it serves its own profiles.
+        active = engine in _DEFAULT_ENGINES and (state.active_engine or EngineKind.XRAY).value == engine
         table.add_row(
             engine,
             ", ".join(versions) if versions else "[dim]none[/dim]",
@@ -52,14 +71,16 @@ _PRE_HELP = (
 
 @core_app.command("install")
 def install_engine(
-    engine: str = typer.Argument(..., help="xray or singbox"),
+    engine: str = typer.Argument(..., help="xray, singbox or aether"),
     version: str | None = typer.Option(
         None, "--version", help="Specific release tag, e.g. v26.3.27 (pre-releases work too). Defaults to latest."
     ),
     pre: bool = typer.Option(False, "--pre", help=_PRE_HELP),
+    variant: str | None = typer.Option(None, "--variant", help=_VARIANT_HELP),
 ) -> None:
     """Download, verify, and install an engine binary."""
     _check_engine(engine)
+    chosen = _check_variant(engine, variant)
     if version and pre:
         raise V2rmError("Use either --version or --pre, not both.")
     console.print(f"Fetching {engine} release info...")
@@ -67,7 +88,7 @@ def install_engine(
         release = installer.fetch_release_for(engine, version, pre)
         kind = " (pre-release)" if release.prerelease else ""
         console.print(f"Release: {release.tag}{kind}")
-        tag = installer.install_engine(engine, release, progress=console.print)
+        tag = installer.install_engine(engine, release, progress=console.print, variant=chosen)
     except DownloadError as exc:
         raise V2rmError(str(exc)) from exc
     console.print(f"[green]Installed[/green] {engine} {tag}")
@@ -75,11 +96,13 @@ def install_engine(
 
 @core_app.command("update")
 def update_engine(
-    engine: str = typer.Argument(..., help="xray or singbox"),
+    engine: str = typer.Argument(..., help="xray, singbox or aether"),
     pre: bool = typer.Option(False, "--pre", help=_PRE_HELP),
+    variant: str | None = typer.Option(None, "--variant", help=_VARIANT_HELP),
 ) -> None:
     """Install the latest release if it's newer than what's currently active (never downgrades)."""
     _check_engine(engine)
+    chosen = _check_variant(engine, variant)
     current = installer.current_version(engine)
     console.print(f"Checking latest {engine} {'release (pre-releases included)' if pre else 'stable release'}...")
     try:
@@ -98,7 +121,7 @@ def update_engine(
         return
 
     try:
-        installer.install_engine(engine, release, progress=console.print)
+        installer.install_engine(engine, release, progress=console.print, variant=chosen)
     except DownloadError as exc:
         raise V2rmError(str(exc)) from exc
     console.print(f"[green]Updated[/green] {engine} {current or '(none)'} -> {tag}")
@@ -108,6 +131,11 @@ def update_engine(
 def use_engine(engine: str = typer.Argument(..., help="xray or singbox")) -> None:
     """Set the default engine for new connections."""
     _check_engine(engine)
+    if engine not in _DEFAULT_ENGINES:
+        raise V2rmError(
+            f"'{engine}' can't be the default engine: it only runs Aether profiles "
+            f"(`v2rm add aether`). Choose one of: {', '.join(_DEFAULT_ENGINES)}"
+        )
     state_store = AppStateStore()
     state = state_store.load()
     state.active_engine = EngineKind(engine)
@@ -117,7 +145,7 @@ def use_engine(engine: str = typer.Argument(..., help="xray or singbox")) -> Non
 
 @core_app.command("remove")
 def remove_engine(
-    engine: str = typer.Argument(..., help="xray or singbox"),
+    engine: str = typer.Argument(..., help="xray, singbox or aether"),
     version: str | None = typer.Option(None, "--version", help="Specific version to remove."),
     all_versions: bool = typer.Option(False, "--all", help="Remove every installed version."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask for confirmation."),

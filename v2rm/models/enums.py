@@ -41,6 +41,9 @@ class ProfileSource(str, Enum):
 class EngineKind(str, Enum):
     XRAY = "xray"
     SINGBOX = "singbox"
+    # Cloudflare WARP over MASQUE / WireGuard / gool, run as its own program. Never the
+    # default engine (`core use` offers xray and singbox only): it serves Aether profiles.
+    AETHER = "aether"
 
 
 class SubscriptionFormat(str, Enum):
