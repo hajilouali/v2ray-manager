@@ -298,6 +298,8 @@ def validate_settings(settings: AetherSettings) -> None:
     _positive(settings.keepalive, "keepalive")
     _positive(settings.exit_loc_secs, "exit location recheck interval")
     _positive(settings.route_sniff_ms, "sniff wait")
+    if settings.wait_secs is not None and settings.wait_secs < 10:
+        raise ProfileValidationError(f"wait must be at least 10 seconds (the tunnel needs time to be found), not {settings.wait_secs}")
 
     for address in settings.dns:
         if not _is_ip(address):

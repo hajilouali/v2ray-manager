@@ -82,6 +82,13 @@ def test_routing_rules_upstream_and_the_rest():
     assert s.ech == "auto" and s.env == {"AETHER_TEAM": "acme"}
 
 
+def test_how_long_connect_waits_can_be_set():
+    assert add("--wait", "300").exit_code == 0
+    assert stored().aether.wait_secs == 300
+    result = add("--wait", "3")
+    assert result.exit_code != 0 and "at least 10 seconds" in str(result.exception)
+
+
 def test_quic_v2_and_grease_switches():
     assert add("--no-quic-v2", "--disable-grease").exit_code == 0
     s = stored().aether

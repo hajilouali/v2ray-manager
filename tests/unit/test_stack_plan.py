@@ -120,6 +120,16 @@ def test_a_route_preset_also_needs_the_front():
     assert any(r.get("outboundTag") == "direct" for r in p.stages[1].config["routing"]["rules"])
 
 
+def test_the_front_is_checked_by_xray_first_only_when_a_preset_needs_geo_data():
+    assert plan(add_aether(), route=BYPASS_IR).stages[1].preflight is True
+    assert plan(add_aether(), auth=ProxyAuth("u", "p")).stages[1].preflight is False
+
+
+def test_how_long_to_wait_for_aether_is_the_profiles_choice_or_the_default():
+    assert plan(add_aether()).stages[0].ready_timeout == 120.0
+    assert plan(add_aether(wait_secs=300)).stages[0].ready_timeout == 300.0
+
+
 def test_the_global_preset_without_a_login_needs_no_xray_at_all():
     assert [s.engine for s in plan(add_aether()).stages] == [AETHER]
 

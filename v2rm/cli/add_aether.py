@@ -185,6 +185,12 @@ def add_aether_command(
         "domain rules work for clients that only send an address, e.g. behind a tun front end).",
     ),
     sniff_ms: int | None = typer.Option(None, "--sniff-ms", help="How long to wait for those bytes (default 400)."),
+    wait: int | None = typer.Option(
+        None,
+        "--wait",
+        help="Seconds v2rm waits for the proxy to come up when connecting (default 120): Aether scans for a gateway first, "
+        "which can take longer on a heavily filtered network.",
+    ),
     exit_loc: str | None = typer.Option(None, "--exit-loc", help="Refuse a tunnel whose exit country is wrong: '!IR,RU' blocks those, 'DE,SE' allows only those."),
     exit_loc_secs: int | None = typer.Option(None, "--exit-loc-secs", help="How often to recheck the exit country (default 60)."),
     mark: str | None = typer.Option(None, "--mark", help="Linux firewall mark (SO_MARK) for Aether's own sockets, e.g. 0xff."),
@@ -240,6 +246,7 @@ def add_aether_command(
         route_direct=[r.strip() for r in direct if r.strip()],
         route_sniff=not no_sniff,
         route_sniff_ms=sniff_ms,
+        wait_secs=wait,
         exit_loc=(exit_loc or "").strip(),
         exit_loc_secs=exit_loc_secs,
         mark=(mark or "").strip(),

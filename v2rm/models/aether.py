@@ -129,6 +129,10 @@ class AetherSettings:
     route_sniff: bool = True
     route_sniff_ms: int | None = None
 
+    # How long v2rm waits for the proxy to come up (Aether scans first, which can take minutes on a
+    # filtered network). None = v2rm's default of two minutes.
+    wait_secs: int | None = None
+
     # Refuse a tunnel whose exit is in the wrong country: "!IR,RU" blocks, "DE,SE" allows only.
     exit_loc: str = ""
     exit_loc_secs: int | None = None
@@ -176,6 +180,7 @@ class AetherSettings:
             "route_direct": list(self.route_direct),
             "route_sniff": self.route_sniff,
             "route_sniff_ms": self.route_sniff_ms,
+            "wait_secs": self.wait_secs,
             "exit_loc": self.exit_loc,
             "exit_loc_secs": self.exit_loc_secs,
             "mark": self.mark,
@@ -228,6 +233,7 @@ class AetherSettings:
             route_direct=_str_list(data, "route_direct"),
             route_sniff=bool(data.get("route_sniff", True)),
             route_sniff_ms=_opt_int(data, "route_sniff_ms"),
+            wait_secs=_opt_int(data, "wait_secs"),
             exit_loc=_str(data, "exit_loc"),
             exit_loc_secs=_opt_int(data, "exit_loc_secs"),
             mark=_str(data, "mark"),

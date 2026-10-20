@@ -69,6 +69,9 @@ ENV_START_TIMEOUT = "V2RM_AETHER_START_TIMEOUT"
 
 Progress = Callable[[str], None]
 
+# How long Aether may say nothing before v2rm reports that it is still waiting.
+HEARTBEAT_SECONDS = 20.0
+
 
 # ---- the plan -----------------------------------------------------------------------------------
 
@@ -391,7 +394,7 @@ def _plan_aether(
             profile=member,
             workdir=paths.aether_profile_dir(member.id),
             ready=READY_SOCKS5,
-            ready_timeout=aether_start_timeout(),
+            ready_timeout=float(settings.wait_secs) if settings.wait_secs else aether_start_timeout(),
         )
     )
 
@@ -405,6 +408,8 @@ def _plan_aether(
                 listen=listen_address,
                 user_facing=True,
                 ready_timeout=CONNECT_POLL_TIMEOUT,
+                # A preset's geosite:/geoip: tags need the geo data: have Xray say so before it starts.
+                preflight=bool(route_plan.rules),
                 config=generate_front_config(
                     route_plan, socks_port, http_port, _loopback(own_socks), listen_address=listen_address, auth=auth
                 ),
@@ -543,10 +548,13 @@ def wait_ready(running: Running, progress: Progress | None) -> None:
     stage = running.stage
     follower = LogFollower(running.log_path) if stage.engine == EngineKind.AETHER else None
     interval = AETHER_POLL_INTERVAL if stage.engine == EngineKind.AETHER else CONNECT_POLL_INTERVAL
-    deadline = time.monotonic() + stage.ready_timeout
+    started = time.monotonic()
+    deadline = started + stage.ready_timeout
     shown: set[str] = set()
+    last_word = started
 
     def report() -> None:
+        nonlocal last_word
         if follower is None or progress is None:
             return
         for line in follower.new_lines():
@@ -554,6 +562,12 @@ def wait_ready(running: Running, progress: Progress | None) -> None:
             if is_progress_line(message) and message not in shown:
                 shown.add(message)
                 progress(f"{stage.label}: {message[:160]}")
+                last_word = time.monotonic()
+        # A scan can go quiet for a long while; say it is still going rather than look hung.
+        if time.monotonic() - last_word >= HEARTBEAT_SECONDS:
+            last_word = time.monotonic()
+            elapsed = last_word - started
+            progress(f"{stage.label}: still working ({elapsed:.0f} s of up to {stage.ready_timeout:.0f} s)...")
 
     while True:
         code = running.proc.poll()

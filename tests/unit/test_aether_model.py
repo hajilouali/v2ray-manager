@@ -28,6 +28,7 @@ def test_settings_round_trip_through_a_dict():
         reconnect_secs=3,
         dns=["1.1.1.1"],
         upstream="socks5://127.0.0.1:1080",
+        wait_secs=300,
         env={"AETHER_TEAM": "acme"},
     )
     assert AetherSettings.from_dict(settings.to_dict()) == settings

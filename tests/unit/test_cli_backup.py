@@ -107,3 +107,23 @@ def test_the_proxy_login_is_not_exported_and_the_user_is_told(tmp_path):
 def test_no_login_note_when_there_is_no_login(tmp_path):
     result = runner.invoke(app, ["export", str(tmp_path / "b.json")])
     assert "not included" not in result.output
+
+
+def test_export_says_aether_identities_are_not_included(tmp_path):
+    runner.invoke(app, ["add", "aether", "--name", "WARP"])
+    backup_file = tmp_path / "backup-aether.json"
+    result = runner.invoke(app, ["export", str(backup_file)])
+    assert result.exit_code == 0, result.output
+    assert "not their WARP identities" in result.output
+
+    # ... and the profile itself round-trips, settings and all.
+    runner.invoke(app, ["profile", "remove", "WARP", "--yes"])
+    assert runner.invoke(app, ["import", str(backup_file)]).exit_code == 0
+    shown = runner.invoke(app, ["profile", "show", "WARP", "--json"])
+    assert '"protocol": "aether"' in shown.output
+
+
+def test_export_without_aether_profiles_does_not_mention_identities(tmp_path):
+    runner.invoke(app, ["add", "trojan://pw@a.example.com:443?security=tls#Alpha"])
+    result = runner.invoke(app, ["export", str(tmp_path / "b.json")])
+    assert "WARP identities" not in result.output

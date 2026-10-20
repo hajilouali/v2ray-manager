@@ -55,6 +55,11 @@ def export_command(
             "[dim]The proxy login (`v2rm port set --auth`) is a secret and is not included; "
             "set it again after importing.[/dim]"
         )
+    if any(p.get("protocol") == "aether" for p in profiles):
+        console.print(
+            "[dim]Aether profiles are included but not their WARP identities (private keys): a restored profile "
+            "registers a new device on its first connection.[/dim]"
+        )
 
 
 def import_command(

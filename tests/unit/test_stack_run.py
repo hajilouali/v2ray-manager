@@ -147,6 +147,13 @@ def test_progress_lines_are_shown_as_aether_works():
     assert len(seen) == len(set(seen))  # each line once
 
 
+def test_a_quiet_scan_says_it_is_still_working(monkeypatch):
+    monkeypatch.setattr(stack, "HEARTBEAT_SECONDS", 0.5)
+    seen: list[str] = []
+    connect(add_aether(name="w", env={"AETHER_FAKE_BEHAVIOUR": "slow:2"}), progress=seen.append)
+    assert any("still working" in line and "w (aether)" in line for line in seen), seen
+
+
 def test_a_failing_aether_reports_why_and_leaves_nothing_behind():
     broken = add_aether(env={"AETHER_FAKE_BEHAVIOUR": "exit"})
     with pytest.raises(ConnectFailedError, match="exited") as caught:

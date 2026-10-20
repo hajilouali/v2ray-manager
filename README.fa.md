@@ -265,6 +265,7 @@ v2rm add aether --mode gool --outer 162.159.198.1:443 --inner 188.114.96.1:2408 
 | `--tls-ciphers`، `--tls-groups`، `--disable-grease`، `--no-quic-v2` | تنظیم دقیق اثر انگشت TLS/QUIC |
 | `--quick-reconnect` / `--no-quick-reconnect` | قبل از اسکن دوباره، گیت‌وی‌هایی که دفعه‌ی قبل کار کردند را امتحان کن (پیش‌فرض روشن است؛ پایین‌تر را ببینید) |
 | `--reconnect-secs`، `--startup-secs`، `--validate-secs`، `--no-data-check`، `--keepalive`، `--dns IP` | تأخیر اتصال مجدد بعد از قطع، زمان بالا آمدن تونل و بررسی داده، keepalive وایرگارد، DNS داخل تونل |
+| `--wait SECONDS` | مدتی که `connect` منتظر بالا آمدن پروکسی می‌ماند (پیش‌فرض ۱۲۰؛ با `V2RM_AETHER_START_TIMEOUT` هم قابل تغییر است). Aether اول دنبال گیت‌وی می‌گردد که در شبکه‌ی خیلی فیلترشده می‌تواند بیشتر طول بکشد؛ اگر اسکن ساکت شود هر ۲۰ ثانیه «still working» نشان داده می‌شود |
 | `--exit-loc '!IR,RU'` / `--exit-loc DE,SE` | تونلی که کشور خروجی‌اش درست نیست را رد کن (قبل از باز شدن پروکسی و بعد هر دقیقه چک می‌شود) |
 | `--mark`، `--api-address`، `--perf`، `--stats`، `--log-level` | گزینه‌های پیشرفته‌ی خود Aether |
 | `--env AETHER_NAME=value` | هر تنظیم دیگر Aether (Zero Trust، Tor، Psiphon، …)، قابل تکرار |

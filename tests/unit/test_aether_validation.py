@@ -140,6 +140,13 @@ def test_timers_are_positive():
     bad("startup timeout", startup_secs=-5)
 
 
+def test_the_wait_for_the_proxy_has_a_sensible_floor():
+    ok(wait_secs=10)
+    ok(wait_secs=600)
+    bad("at least 10 seconds", wait_secs=5)
+    bad("at least 10 seconds", wait_secs=0 - 1)
+
+
 def test_dns_servers_are_addresses():
     ok(dns=["1.1.1.1", "2606:4700:4700::1111"])
     bad("not an IP address", dns=["dns.example"])

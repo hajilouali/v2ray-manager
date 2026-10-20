@@ -265,6 +265,7 @@ The two hops must be different addresses (v2rm checks, with a readable message).
 | `--tls-ciphers`, `--tls-groups`, `--disable-grease`, `--no-quic-v2` | Fine-tune the TLS/QUIC fingerprint |
 | `--quick-reconnect` / `--no-quick-reconnect` | Try the gateways that worked last time before scanning again (on by default; see below) |
 | `--reconnect-secs`, `--startup-secs`, `--validate-secs`, `--no-data-check`, `--keepalive`, `--dns IP` | Reconnect delay after a drop, tunnel start-up and data-check time, WireGuard keepalive, resolvers inside the tunnel |
+| `--wait SECONDS` | How long `connect` waits for the proxy to come up (default 120; also `V2RM_AETHER_START_TIMEOUT`). Aether scans for a gateway first, which can take longer on a heavily filtered network; a quiet scan is reported as "still working" every 20 s |
 | `--exit-loc '!IR,RU'` / `--exit-loc DE,SE` | Refuse a tunnel whose exit country is wrong (checked before the proxy opens, then every minute) |
 | `--mark`, `--api-address`, `--perf`, `--stats`, `--log-level` | Aether's own advanced options |
 | `--env AETHER_NAME=value` | Any other Aether setting (Zero Trust, Tor, Psiphon, …), repeatable |

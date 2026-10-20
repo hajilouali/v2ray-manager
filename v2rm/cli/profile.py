@@ -138,6 +138,7 @@ def _show_aether(p: Profile) -> None:
         for rule in s.route_direct:
             _line("  direct", rule)
     _line("exit only", s.exit_loc)
+    _line("waits", f"{s.wait_secs} s for the proxy to come up" if s.wait_secs else "")
     _line("reconnect", f"quick reconnect {'on' if s.quick_reconnect else 'off'}" + (f", {s.reconnect_secs} s between attempts" if s.reconnect_secs else ""))
     if s.env:
         _line("extra env", ", ".join(sorted(s.env)))  # names only: values can be secrets
