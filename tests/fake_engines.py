@@ -107,8 +107,9 @@ def serve(host: str, port: int, proxy: bool = False) -> None:
     def handle(conn: socket.socket) -> None:
         try:
             conn.settimeout(5)
-            greeting = conn.recv(3)
-            if greeting[:1] == b"\x05":
+            greeting = conn.recv(2)  # VER, NMETHODS ...
+            if greeting[:1] == b"\x05" and len(greeting) == 2:
+                conn.recv(greeting[1])  # ... and that many METHODS (curl offers more than one)
                 conn.sendall(b"\x05\x00")
                 if proxy:
                     relay(conn)
