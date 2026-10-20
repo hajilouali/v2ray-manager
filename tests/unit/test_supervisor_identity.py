@@ -30,10 +30,16 @@ def tokens(monkeypatch):
 
 @pytest.fixture
 def signals(monkeypatch):
+    """Real signals sent (signal 0 is only an "is it there?" probe and doesn't count)."""
     sent: list[tuple[int, int]] = []
-    monkeypatch.setattr(os, "kill", lambda pid, sig: sent.append((pid, sig)))
+
+    def kill(pid, sig):
+        if sig != 0:
+            sent.append((pid, sig))
+
+    monkeypatch.setattr(os, "kill", kill)
     if hasattr(os, "killpg"):
-        monkeypatch.setattr(os, "killpg", lambda pid, sig: sent.append((pid, sig)))
+        monkeypatch.setattr(os, "killpg", kill)
     return sent
 
 
