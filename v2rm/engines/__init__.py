@@ -4,12 +4,14 @@ from typing import Any
 
 from v2rm.constants import DEFAULT_LISTEN_ADDRESS
 from v2rm.engines.versioning import check_core_requirements
+from v2rm.errors import UnsupportedProtocolError
 from v2rm.models.auth import ProxyAuth
 from v2rm.models.enums import EngineKind, Protocol
 from v2rm.models.profile import Profile
+from v2rm.net.proxy_url import ProxyEndpoint
 from v2rm.routing.model import RoutePlan
 
-ENGINE_LABELS = {EngineKind.XRAY: "Xray-core", EngineKind.SINGBOX: "sing-box"}
+ENGINE_LABELS = {EngineKind.XRAY: "Xray-core", EngineKind.SINGBOX: "sing-box", EngineKind.AETHER: "Aether"}
 
 # Kinds of profile that exactly one engine can run.
 _REQUIRED_ENGINE = {
@@ -17,6 +19,7 @@ _REQUIRED_ENGINE = {
     Protocol.MASQUE: EngineKind.XRAY,
     Protocol.HYSTERIA2: EngineKind.SINGBOX,
     Protocol.TUIC: EngineKind.SINGBOX,
+    Protocol.AETHER: EngineKind.AETHER,
 }
 
 
@@ -29,7 +32,14 @@ def generate_config(
     listen_address: str = DEFAULT_LISTEN_ADDRESS,
     auth: ProxyAuth | None = None,
     notes: list[str] | None = None,
+    upstream: ProxyEndpoint | None = None,
 ) -> dict[str, Any]:
+    """The runtime JSON config for an Xray or sing-box profile. `upstream`, if given, is a proxy
+    this profile's own connection to its server is dialled through (a hop of a chain)."""
+    if engine == EngineKind.AETHER:
+        raise UnsupportedProtocolError(
+            "Aether is configured through its environment, not a config file; see v2rm.engines.aether.env"
+        )
     if engine == EngineKind.XRAY:
         from v2rm.engines.xray.generate import generate_config as gen
     else:
@@ -42,10 +52,13 @@ def generate_config(
         listen_address=listen_address,
         auth=auth,
         notes=notes,
+        upstream=upstream,
     )
 
 
 def supported_protocols(engine: EngineKind) -> frozenset[Protocol]:
+    if engine == EngineKind.AETHER:
+        return frozenset({Protocol.AETHER})
     if engine == EngineKind.XRAY:
         from v2rm.engines.xray.generate import SUPPORTED_PROTOCOLS
     else:
@@ -73,6 +86,8 @@ def resolve_engine(profile: Profile, preferred: EngineKind | None) -> tuple[Engi
     needed = required_engine(profile.protocol)
     if needed is None:
         return preferred or EngineKind.XRAY, None
+    if needed == EngineKind.AETHER:
+        return needed, None  # nobody expects the default engine to run a WARP profile
     note = None
     if preferred is not None and preferred != needed:
         kind = "raw Xray" if profile.is_raw else profile.protocol.value

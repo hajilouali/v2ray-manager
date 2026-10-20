@@ -9,6 +9,7 @@ from v2rm.errors import UnsupportedFeatureError, UnsupportedProtocolError
 from v2rm.models.auth import ProxyAuth
 from v2rm.models.enums import Protocol, SecurityKind, TransportKind
 from v2rm.models.profile import Profile, TlsSettings
+from v2rm.net.proxy_url import ProxyEndpoint
 from v2rm.parsers.masque import DEFAULT_ALPN as MASQUE_DEFAULT_ALPN
 from v2rm.parsers.masque import validate_masque
 from v2rm.routing.model import RoutePlan
@@ -38,6 +39,9 @@ _NETWORKS = {
 _XHTTP_MODES = {"auto", "packet-up", "stream-up", "stream-one"}
 
 
+UPSTREAM_TAG = "v2rm-upstream"
+
+
 def generate_config(
     profile: Profile,
     route_plan: RoutePlan,
@@ -46,9 +50,13 @@ def generate_config(
     listen_address: str = DEFAULT_LISTEN_ADDRESS,
     auth: ProxyAuth | None = None,
     notes: list[str] | None = None,
+    upstream: ProxyEndpoint | None = None,
 ) -> dict[str, Any]:
     """Build the whole runtime config. `notes`, if given, collects one-line
-    messages about things that were ignored/rewritten, for the caller to show."""
+    messages about things that were ignored/rewritten, for the caller to show.
+
+    `upstream` makes the profile's own connection to its server leave through that proxy
+    (Xray's `dialerProxy`): the hop of a chain that comes after another one."""
     if profile.protocol not in SUPPORTED_PROTOCOLS:
         raise UnsupportedProtocolError(
             f"Xray-core does not support '{profile.protocol.value}' profiles; use sing-box instead."
@@ -57,15 +65,59 @@ def generate_config(
         notes = []
 
     if profile.protocol == Protocol.RAW_XRAY:
+        if upstream is not None:
+            raise UnsupportedFeatureError(
+                "A raw Xray config has outbounds of its own that v2rm can't safely re-route through another "
+                "hop. Use it as the first hop of a chain, or add its server as an ordinary profile."
+            )
         # Raw profiles carry their own routing/dns/outbounds; presets don't apply.
         return build_raw_runtime_config(profile, socks_port, http_port, listen_address, auth, notes)
 
     _collect_notes(profile, notes)
+    outbound = _outbound(profile)
+    outbounds = [
+        outbound,
+        {"tag": "direct", "protocol": "freedom", "settings": {}},
+        {"tag": "block", "protocol": "blackhole", "settings": {"response": {"type": "http"}}},
+    ]
+    if upstream is not None:
+        outbound.setdefault("streamSettings", {}).setdefault("sockopt", {})["dialerProxy"] = UPSTREAM_TAG
+        outbounds.append(proxy_outbound(upstream, UPSTREAM_TAG))
+    return {
+        "log": {"loglevel": "warning"},
+        "inbounds": _inbounds(socks_port, http_port, listen_address, auth),
+        "outbounds": outbounds,
+        "routing": {
+            "domainStrategy": "IPIfNonMatch",
+            "rules": build_routing_rules(route_plan),
+        },
+    }
+
+
+def proxy_outbound(endpoint: ProxyEndpoint, tag: str) -> dict[str, Any]:
+    """An outbound that dials through an existing SOCKS5 or HTTP proxy."""
+    server: dict[str, Any] = {"address": endpoint.host, "port": endpoint.port}
+    if endpoint.has_credentials:
+        server["users"] = [{"user": endpoint.user, "pass": endpoint.password}]
+    return {"tag": tag, "protocol": "socks" if endpoint.is_socks else "http", "settings": {"servers": [server]}}
+
+
+def generate_front_config(
+    route_plan: RoutePlan,
+    socks_port: int,
+    http_port: int,
+    backend: ProxyEndpoint,
+    listen_address: str = DEFAULT_LISTEN_ADDRESS,
+    auth: ProxyAuth | None = None,
+) -> dict[str, Any]:
+    """The config of a "front": v2rm's own SOCKS/HTTP listeners (address, login, route preset)
+    in front of a proxy that has none of those -- Aether's SOCKS5 port, which has no login and
+    no geo rules. Everything the route preset sends to `proxy` goes to `backend`."""
     return {
         "log": {"loglevel": "warning"},
         "inbounds": _inbounds(socks_port, http_port, listen_address, auth),
         "outbounds": [
-            _outbound(profile),
+            proxy_outbound(backend, "proxy"),
             {"tag": "direct", "protocol": "freedom", "settings": {}},
             {"tag": "block", "protocol": "blackhole", "settings": {"response": {"type": "http"}}},
         ],

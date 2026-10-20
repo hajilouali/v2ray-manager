@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from v2rm.models.aether import AetherMode, AetherSettings
+from v2rm.models.chain import ChainHop
 from v2rm.models.enums import (
     EngineKind,
     ProfileSource,
@@ -14,6 +16,9 @@ from v2rm.models.state import AppState
 from v2rm.models.subscription import Subscription
 
 __all__ = [
+    "AetherMode",
+    "AetherSettings",
+    "ChainHop",
     "EngineKind",
     "ProfileSource",
     "Protocol",

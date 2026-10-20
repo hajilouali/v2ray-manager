@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from v2rm.models.aether import AetherSettings
+from v2rm.models.chain import ChainHop
 from v2rm.models.enums import ProfileSource, Protocol, SecurityKind, TransportKind
 
 # Bumped whenever a profile gains stored fields that older parsers dropped, so
@@ -175,6 +177,10 @@ class Profile:
     # The complete Xray config of a raw-xray profile (None for every other kind).
     raw_config: dict[str, Any] | None = None
 
+    # The settings of an Aether profile, and the hops of a chain (None for every other kind).
+    aether: AetherSettings | None = None
+    chain: list[ChainHop] | None = None
+
     schema: int = SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -200,12 +206,16 @@ class Profile:
             "tls": self.tls.to_dict(),
             "extra": copy.deepcopy(self.extra),
             "raw_config": copy.deepcopy(self.raw_config),
+            "aether": self.aether.to_dict() if self.aether else None,
+            "chain": [hop.to_dict() for hop in self.chain] if self.chain is not None else None,
             "schema": self.schema,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Profile:
         raw_config = data.get("raw_config")
+        aether = data.get("aether")
+        chain = data.get("chain")
         return cls(
             id=data["id"],
             name=data["name"],
@@ -228,6 +238,8 @@ class Profile:
             tls=TlsSettings.from_dict(data.get("tls")),
             extra=copy.deepcopy(data.get("extra") or {}),
             raw_config=copy.deepcopy(raw_config) if raw_config is not None else None,
+            aether=AetherSettings.from_dict(aether) if isinstance(aether, dict) else None,
+            chain=[ChainHop.from_dict(h) for h in chain if isinstance(h, dict)] if isinstance(chain, list) else None,
             schema=int(data.get("schema", 1)),
         )
 
@@ -236,12 +248,24 @@ class Profile:
         return self.protocol == Protocol.RAW_XRAY
 
     @property
+    def is_aether(self) -> bool:
+        return self.protocol == Protocol.AETHER
+
+    @property
+    def is_chain(self) -> bool:
+        return self.protocol == Protocol.CHAIN
+
+    @property
     def type_label(self) -> str:
         """Short label for the profile list's Type column."""
         return "raw" if self.is_raw else self.protocol.value
 
     @property
     def server_display(self) -> str:
+        if self.is_aether:
+            return (self.aether or AetherSettings()).summary()
+        if self.is_chain:
+            return " -> ".join(hop.label() for hop in self.chain or []) or NO_SERVER
         if self.is_raw or not self.server:
             return NO_SERVER
         return f"{self.server}:{self.port}"
@@ -272,6 +296,11 @@ class Profile:
             if remarks:
                 return (self.protocol.value, remarks)
             return (self.protocol.value, "sha256:" + _sha256_hex(canonical_json(config)))
+
+        if self.protocol in (Protocol.AETHER, Protocol.CHAIN):
+            # Made by hand, never by a subscription, so nothing is matched across refreshes:
+            # the profile's own id is its identity.
+            return (self.protocol.value, self.id)
 
         if self.protocol == Protocol.MASQUE:
             return (

@@ -14,6 +14,11 @@ class Protocol(str, Enum):
     # A complete, hand-written Xray config (no single server): e.g. "serverless"
     # DPI-evasion configs. Stored verbatim in Profile.raw_config.
     RAW_XRAY = "raw-xray"
+    # Cloudflare WARP through Aether (MASQUE, WireGuard, gool, ...): no server of its own,
+    # the settings are in Profile.aether.
+    AETHER = "aether"
+    # Other profiles strung together, each leaving through the one before: Profile.chain.
+    CHAIN = "chain"
 
 
 class SecurityKind(str, Enum):

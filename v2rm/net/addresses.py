@@ -26,6 +26,13 @@ def is_wildcard(address: str) -> bool:
     return address.strip() in WILDCARDS
 
 
+def hostport(address: str, port: int) -> str:
+    """`host:port`, with an IPv6 address in brackets, as most programs want it."""
+    host = address.strip()
+    ip = parse_ip(host)
+    return f"[{host}]:{port}" if ip is not None and ip.version == 6 else f"{host}:{port}"
+
+
 def is_loopback(address: str) -> bool:
     ip = parse_ip(address)
     return ip is not None and ip.is_loopback

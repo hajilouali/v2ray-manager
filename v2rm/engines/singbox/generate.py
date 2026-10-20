@@ -7,6 +7,7 @@ from v2rm.errors import UnsupportedFeatureError, UnsupportedProtocolError
 from v2rm.models.auth import ProxyAuth
 from v2rm.models.enums import Protocol, SecurityKind, TransportKind
 from v2rm.models.profile import Profile
+from v2rm.net.proxy_url import ProxyEndpoint
 from v2rm.routing.model import RoutePlan
 
 SUPPORTED_PROTOCOLS = frozenset(
@@ -29,6 +30,9 @@ _UTLS_FINGERPRINTS = frozenset(
 _PACKET_ENCODINGS = {"xudp": "xudp", "packet": "packetaddr", "packetaddr": "packetaddr"}
 
 
+UPSTREAM_TAG = "v2rm-upstream"
+
+
 def generate_config(
     profile: Profile,
     route_plan: RoutePlan,
@@ -37,7 +41,10 @@ def generate_config(
     listen_address: str = DEFAULT_LISTEN_ADDRESS,
     auth: ProxyAuth | None = None,
     notes: list[str] | None = None,
+    upstream: ProxyEndpoint | None = None,
 ) -> dict[str, Any]:
+    """The whole runtime config. `upstream` makes the profile's connection to its server leave
+    through that proxy (sing-box's `detour`): the hop of a chain that comes after another one."""
     if profile.protocol not in SUPPORTED_PROTOCOLS:
         raise UnsupportedProtocolError(
             f"sing-box does not support '{profile.protocol.value}' profiles; "
@@ -47,20 +54,42 @@ def generate_config(
 
     rule_sets, rules = build_routing_rules(route_plan)
 
+    outbound = _outbound(profile)
+    outbounds = [
+        outbound,
+        {"type": "direct", "tag": "direct"},
+        {"type": "block", "tag": "block"},
+    ]
+    if upstream is not None:
+        outbound["detour"] = UPSTREAM_TAG
+        outbounds.append(proxy_outbound(upstream, UPSTREAM_TAG))
+
     return {
         "log": {"level": "warn"},
         "inbounds": _inbounds(socks_port, http_port, listen_address, auth),
-        "outbounds": [
-            _outbound(profile),
-            {"type": "direct", "tag": "direct"},
-            {"type": "block", "tag": "block"},
-        ],
+        "outbounds": outbounds,
         "route": {
             "rule_set": rule_sets,
             "rules": rules,
             "final": "proxy",
         },
     }
+
+
+def proxy_outbound(endpoint: ProxyEndpoint, tag: str) -> dict[str, Any]:
+    """An outbound that dials through an existing SOCKS5 or HTTP proxy."""
+    out: dict[str, Any] = {
+        "type": "socks" if endpoint.is_socks else "http",
+        "tag": tag,
+        "server": endpoint.host,
+        "server_port": endpoint.port,
+    }
+    if endpoint.is_socks:
+        out["version"] = "5"
+    if endpoint.has_credentials:
+        out["username"] = endpoint.user
+        out["password"] = endpoint.password
+    return out
 
 
 def _inbounds(
