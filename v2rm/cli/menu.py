@@ -177,6 +177,38 @@ def _add_chain_flow() -> None:
     _safe(add_chain, name, refs)
 
 
+def _proxy_settings_flow() -> None:
+    from v2rm.cli.port import apply_settings, show_ports
+    from v2rm.store.state import AppStateStore
+
+    _safe(show_ports)
+    console.print(
+        "Login for the SOCKS and HTTP ports: keep = leave it as it is | "
+        "set = require a user name and password | none = no user name or password"
+    )
+    login = Prompt.ask("Login", choices=["keep", "set", "none"], default="keep")
+    user = None
+    if login == "set":
+        user = Prompt.ask("  User name (the password is asked for at the end)").strip()
+        if not user:
+            console.print("[yellow]A user name is needed -- nothing changed.[/yellow]")
+            return
+
+    state = AppStateStore().load()
+    new_socks = IntPrompt.ask("SOCKS port", default=state.socks_port)
+    new_http = IntPrompt.ask("HTTP port", default=state.http_port)
+    console.print("Listen address: 127.0.0.1 = this machine only | 0.0.0.0 = every interface | docker = the Docker bridge")
+    new_listen = Prompt.ask("Listen address", default=state.listen_address).strip()
+
+    socks = new_socks if new_socks != state.socks_port else None
+    http = new_http if new_http != state.http_port else None
+    listen = new_listen if new_listen and new_listen != state.listen_address else None
+    if login == "keep" and socks is None and http is None and listen is None:
+        console.print("[dim]Nothing changed.[/dim]")
+        return
+    _safe(apply_settings, socks=socks, http=http, listen=listen, user=user, password=None, no_auth=login == "none", yes=False)
+
+
 def _add_subscription_flow() -> None:
     from v2rm.cli.sub import add_subscription
 
@@ -261,6 +293,7 @@ def run_menu() -> None:
         ),
         "15": ("Add an Aether (Cloudflare WARP) connection", _add_aether_flow),
         "16": ("Make a chain of connections", _add_chain_flow),
+        "17": ("Local proxy: ports, listen address, user name and password", _proxy_settings_flow),
     }
 
     try:

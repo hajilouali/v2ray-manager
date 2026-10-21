@@ -5,6 +5,9 @@ import requests
 from typer.testing import CliRunner
 
 from v2rm.cli.app import app
+from v2rm.models.auth import ProxyAuth
+from v2rm.store.auth import AuthStore
+from v2rm.store.state import AppStateStore
 
 runner = CliRunner()
 
@@ -186,3 +189,89 @@ def test_menu_profile_picker_shows_types_and_literal_names():
     runner.invoke(app, ["add", "trojan://pw@t.example.com:443#[free] node"])
     result = runner.invoke(app, ["menu"], input="1\n0\n0\n")
     assert "[free] node" in result.output and "(trojan, t.example.com:443)" in result.output
+
+
+# ---- local proxy settings (17) ---------------------------------------------------------------------------
+# Answers, in order: Login (keep/set/none), [user name], SOCKS port, HTTP port, listen address,
+# and, for "set", the password twice. Enter keeps the offered value.
+
+
+def test_menu_lists_the_local_proxy_settings():
+    result = runner.invoke(app, ["menu"], input="0\n")
+    assert "17) Local proxy" in result.output
+
+
+def test_menu_shows_the_current_settings_first():
+    result = runner.invoke(app, ["menu"], input="17\nkeep\n\n\n\n0\n")
+    assert result.exit_code == 0, result.output
+    assert "socks   127.0.0.1:10808" in result.output and "auth    none" in result.output
+    assert "Nothing changed" in result.output
+
+
+def test_menu_sets_a_user_name_and_password():
+    result = runner.invoke(app, ["menu"], input="17\nset\nalice\n\n\n\npw-1\npw-1\n0\n")
+    assert result.exit_code == 0, result.output
+    assert AuthStore().load() == ProxyAuth("alice", "pw-1")
+    assert "login required (user: alice)" in result.output
+    assert "pw-1" not in result.output
+    assert AppStateStore().load().socks_port == 10808  # Enter kept the ports
+
+
+def test_menu_removes_the_login():
+    AuthStore().save(ProxyAuth("alice", "pw"))
+    result = runner.invoke(app, ["menu"], input="17\nnone\n\n\n\n0\n")
+    assert result.exit_code == 0, result.output
+    assert "login not required" in result.output
+    assert AuthStore().load() is None
+
+
+def test_menu_changes_the_ports_and_keeps_the_login():
+    AuthStore().save(ProxyAuth("alice", "pw"))
+    result = runner.invoke(app, ["menu"], input="17\nkeep\n11000\n11001\n\n0\n")
+    assert result.exit_code == 0, result.output
+    state = AppStateStore().load()
+    assert (state.socks_port, state.http_port) == (11000, 11001)
+    assert AuthStore().load() == ProxyAuth("alice", "pw")
+
+
+def test_menu_changes_the_listen_address():
+    result = runner.invoke(app, ["menu"], input="17\nkeep\n\n\n0.0.0.0\n0\n")
+    assert result.exit_code == 0, result.output
+    assert AppStateStore().load().listen_address == "0.0.0.0"
+    assert "Warning" in result.output  # reachable beyond localhost, no login
+
+
+def test_menu_needs_a_user_name_to_set_a_login():
+    result = runner.invoke(app, ["menu"], input="17\nset\n\n0\n")
+    assert result.exit_code == 0, result.output
+    assert "A user name is needed" in result.output
+    assert AuthStore().load() is None
+
+
+def test_menu_reports_a_bad_user_name_without_asking_for_a_password():
+    result = runner.invoke(app, ["menu"], input="17\nset\na:b\n\n\n\n0\n")
+    assert result.exit_code == 0, result.output
+    assert "can't contain a colon" in result.output
+    assert "Password for" not in result.output
+    assert AuthStore().load() is None
+
+
+def test_menu_reports_a_bad_port_and_saves_nothing():
+    result = runner.invoke(app, ["menu"], input="17\nset\nalice\n99999\n\n\n0\n")
+    assert result.exit_code == 0, result.output
+    assert "valid port number" in result.output
+    assert AuthStore().load() is None
+    assert AppStateStore().load().socks_port == 10808
+
+
+def test_menu_refuses_one_port_for_both():
+    result = runner.invoke(app, ["menu"], input="17\nkeep\n10809\n\n\n0\n")
+    assert result.exit_code == 0, result.output
+    assert "can't both be 10809" in result.output
+    assert AppStateStore().load().socks_port == 10808
+
+
+def test_menu_asks_the_login_question_again_after_a_wrong_answer():
+    result = runner.invoke(app, ["menu"], input="17\nmaybe\nnone\n\n\n\n0\n")
+    assert result.exit_code == 0, result.output
+    assert "Please select one of the available options" in result.output

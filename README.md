@@ -18,10 +18,10 @@
 - **Real connectivity testing**: `v2rm test` doesn't just ping a config — it spins up a throwaway instance of the engine, connects through it, and actually downloads a small file, reporting real latency and throughput. `test --all` does this for every saved profile in parallel and ranks the results.
 - **Switch connections** in one command, live, with `v2rm connect <profile>` or `v2rm profile use <profile>`.
 - **Local SOCKS + HTTP proxy only.** No TUN device, no system/NetworkManager proxy changes, ever. Use `v2rm env` to opt one shell session in (`eval "$(v2rm env)"`), or `v2rm exec -- <command>` to run a single command through it — nothing else is affected.
-- **You choose where it listens**: loopback (the default), a specific address, the Docker bridge (`--listen docker`) or every interface (`0.0.0.0`) — with an optional login (`--auth USER:PASS`), warnings when the proxy is reachable beyond localhost, and a `doctor` that looks at your firewall. See [Using v2rm from Docker](#using-v2rm-from-docker).
+- **You choose where it listens**: loopback (the default), a specific address, the Docker bridge (`--listen docker`) or every interface (`0.0.0.0`) — with an optional user name and password (`--user NAME`, or none at all), warnings when the proxy is reachable beyond localhost, and a `doctor` that looks at your firewall. See [Local proxy: ports and login](#local-proxy-ports-and-login) and [Using v2rm from Docker](#using-v2rm-from-docker).
 - **Three engines** — Xray-core and sing-box (swappable defaults), plus Aether for WARP profiles — installed, updated, and switched with `v2rm core`. sing-box additionally covers Hysteria2 and TUIC, which Xray-core doesn't support; Xray-core covers MASQUE, raw configs and the newer link options, which sing-box doesn't.
 - **Routing rules**: built-in `global` (proxy everything), `bypass-cn` (v2rayN's classic mainland-China bypass), and `bypass-ir` (direct-routes Iranian sites/IPs and LAN, tunnels everything else) presets, plus a hand-editable `custom` rule file.
-- **A friendly interactive menu** (just run `v2rm`) for everyday use — including "Add a JSON config", "Add a MASQUE server", "Add an Aether connection" and "Make a chain" — backed by the exact same commands available on the command line for scripting.
+- **A friendly interactive menu** (just run `v2rm`) for everyday use — including "Add a JSON config", "Add a MASQUE server", "Add an Aether connection", "Make a chain" and "Local proxy" (ports, listen address, user name and password) — backed by the exact same commands available on the command line for scripting.
 
 ## Install
 
@@ -137,7 +137,7 @@ Prefer a menu over remembering flags? Just run `v2rm` with no arguments.
 | `v2rm core use <xray\|singbox>` | Set the default engine (Aether only runs Aether profiles, so it is never the default) |
 | `v2rm core remove <xray\|singbox\|aether> [--version V] [--all]` | Remove installed engine version(s) |
 | `v2rm port show` | Show the listen address, ports and whether a login is required |
-| `v2rm port set [--socks P] [--http P] [--listen ADDR\|docker] [--auth USER:PASS \| --no-auth]` | Change the local proxy ports, listen address and login |
+| `v2rm port set [--socks P] [--http P] [--listen ADDR\|docker] [--user NAME [--password PASS] \| --auth USER:PASS \| --no-auth]` | Change the local proxy ports, listen address and login: a user name and password for both ports (asked for at a hidden prompt when `--password` is left out), or none (`--no-auth`) |
 
 Every command has `--help`.
 
@@ -179,7 +179,7 @@ The name defaults to the config's `"remarks"`.
 - Only `socks`, `http` and `mixed` inbounds are kept. Anything else (`tun`, `dokodemo-door`, `tproxy`, …) is dropped, with a one-line warning naming what went.
 - v2rm keeps a single proxy inbound (extra SOCKS/HTTP ones are dropped with the same warning). It is bound to the address you set with `v2rm port set --listen` — always written explicitly, because sample configs usually omit `listen`, which makes Xray bind `0.0.0.0` — and to v2rm's SOCKS port. (A config whose only inbound is `http` keeps it on v2rm's HTTP port and gains a SOCKS twin instead.)
 - v2rm's HTTP port is served by an added `http` inbound (tag `<original-tag>-http`, same listen address, same `sniffing`), and that tag is appended to every `routing.rules[].inboundTag` list that contains the original tag, so the config's routing treats both alike. A `mixed` inbound already serves both on the SOCKS port. A config with no usable inbound gets a normal SOCKS + HTTP pair.
-- If you set a proxy login (`--auth`), every inbound requires it.
+- If you set a proxy login (`v2rm port set --user`), every inbound requires it.
 - `dns`, `outbounds`, `routing`, `policy`, `fakedns`, `observatory`, balancers, unknown keys and `version` stay exactly as written.
 - Listeners that don't come from `inbounds` — `metrics.listen` and `api.listen` — are also left as written, but `connect` and `test` name them in a note, because they sit outside the address you chose.
 - **Routing presets don't apply.** A raw profile carries its own routing; `v2rm route show`, `route set`, `status` and `connect` say so instead of implying a preset is in effect.
@@ -305,7 +305,7 @@ Aether has more than v2rm has flags for. Anything else is passed straight throug
 ### How v2rm runs it
 
 - With the `global` route preset and no login, Aether binds your listen address and ports itself (`--http-proxy` gives the HTTP port): one program, no Xray needed.
-- With `v2rm port set --auth` or a route preset (`bypass-ir`, …), Aether moves to a loopback port and a small **Xray front** serves your address, login and preset in front of it (Aether's own SOCKS5 port has neither login nor geo rules). `connect` tells you when that happens; the front needs `v2rm core install xray`.
+- With a proxy login (`v2rm port set --user`) or a route preset (`bypass-ir`, …), Aether moves to a loopback port and a small **Xray front** serves your address, login and preset in front of it (Aether's own SOCKS5 port has neither login nor geo rules). `connect` tells you when that happens; the front needs `v2rm core install xray`.
 - Everything Aether is told goes through its **environment** (`AETHER_*`), never the command line; every `AETHER_*` variable and `RUST_LOG` in *your* shell is removed from what it inherits, and its stdin is closed so it can never stop to ask a question. `v2rm aether env <profile>` prints exactly what it is given (secrets hidden).
 - `v2rm test` starts a throwaway tunnel (or tests the live proxy when that profile is the one connected — one WARP identity can carry one tunnel); `v2rm doctor` checks that `aether` runs (a glibc build on an old distribution fails right there; the default static musl build avoids it) — and `v2rm core install aether --variant gnu` is there if you want the glibc one.
 - `export`/`import` carry the profile but not its WARP identity (private keys): a restored profile registers a new device on first connect, or take one over with `--identity-file path/to/aether.toml` when adding.
@@ -384,6 +384,28 @@ All under standard XDG locations (overridable with `V2RM_CONFIG_HOME`/`V2RM_DATA
 - `~/.local/state/v2rm/run/` — the generated runtime config (mode `0600`, it contains your server credentials), pidfile, engine log; for a chain or an Aether profile with a front, one config and log per program (`stage-N.json`, `logs/stage-N-<engine>.log`)
 - `~/.cache/v2rm/assets/` — cached GeoIP/GeoSite data
 
+## Local proxy: ports and login
+
+v2rm serves one SOCKS5 port and one HTTP port (by default `127.0.0.1:10808` and `127.0.0.1:10809`). Out of the box there is **no login**: anything that can reach those ports can use them, which is fine while they only listen on localhost. You can require a user name and password instead — one login, the same for both ports, for every kind of profile and for both engines:
+
+```bash
+v2rm port show                               # listen address, ports, and the user name (never the password)
+
+v2rm port set --user alice                   # asks for the password (typed hidden, twice)
+v2rm port set --user alice --password PASS   # or give it up front -- it then stays in your shell history and shows in `ps`
+v2rm port set --auth alice:PASS              # the same, in one piece
+v2rm port set --password NEWPASS             # change only the password of the current login
+v2rm port set --no-auth                      # no user name and no password again
+```
+
+The interactive menu does the same: run `v2rm`, then **17) Local proxy** (it also covers the ports and the listen address, and asks for the password last).
+
+- A change takes effect at the next connection; when v2rm is connected, `port set` offers to reconnect (`--yes` skips the question).
+- The login lives in `auth.json` (mode `0600`), apart from `state.json`. It is never printed except inside the proxy URLs you ask for (`v2rm env`, `env --docker`), and it is not part of `v2rm export`. `v2rm env`, `v2rm exec` and `v2rm test` fill it in for you; for anything else: `curl -x http://alice:PASS@127.0.0.1:10809 …` or `curl --proxy socks5h://alice:PASS@127.0.0.1:10808 …`.
+- The user name can't contain `:`, and neither part may contain control characters or be longer than 255 bytes (what SOCKS5 can carry).
+- SOCKS5 and HTTP proxy logins are sent unencrypted: fine on localhost or a Docker bridge, not across an untrusted network.
+- Aether's own SOCKS5 port can't check a login, so with one set (or with a route preset) v2rm puts a small Xray front in front of it — see [How v2rm runs it](#how-v2rm-runs-it).
+
 ## Using v2rm from Docker
 
 A container's `127.0.0.1` is its own loopback, so with the default setup (`127.0.0.1`) containers **can't** reach v2rm's proxy. Where the proxy listens is your decision, set with `v2rm port set --listen` and never hard-coded:
@@ -451,7 +473,7 @@ sudo iptables -A INPUT -s 172.16.0.0/12 -p tcp -m multiport --dports 10808,10809
 sudo iptables -A INPUT -p tcp -m multiport --dports 10808,10809 -j DROP
 ```
 
-- `--auth USER:PASS` makes both the SOCKS and HTTP ports require that login (every inbound, for every kind of profile and for both engines). It is stored in `auth.json` with mode `0600` and never printed except inside the proxy URLs you ask for (`env`, `env --docker`). SOCKS5 and HTTP proxy logins are sent unencrypted, so this is fine on localhost or a Docker bridge, not across an untrusted network. `--no-auth` removes it.
+- A login (`v2rm port set --user NAME`, or `--auth USER:PASS`; see [Local proxy: ports and login](#local-proxy-ports-and-login)) makes both the SOCKS and HTTP ports require it (every inbound, for every kind of profile and for both engines). It is stored in `auth.json` with mode `0600` and never printed except inside the proxy URLs you ask for (`env`, `env --docker`). SOCKS5 and HTTP proxy logins are sent unencrypted, so this is fine on localhost or a Docker bridge, not across an untrusted network. `--no-auth` removes it.
 - `v2rm doctor` also looks at ufw/iptables when it can read their rules and says whether the proxy's ports are open, restricted or blocked. Reading firewall rules normally needs root, and nftables/firewalld/cloud security groups aren't covered — when it can't tell, it says "couldn't determine" instead of guessing.
 
 ## FAQ

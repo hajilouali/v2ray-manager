@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 
 from v2rm.cli.app import app
 from v2rm.errors import V2rmError
+from v2rm.models.auth import ProxyAuth
 from v2rm.net.docker import DockerGateway
 from v2rm.store import paths
 from v2rm.store.auth import AuthStore
@@ -185,6 +186,172 @@ def test_auth_and_no_auth_together_are_rejected():
     result = runner.invoke(app, ["port", "set", "--auth", "a:b", "--no-auth"])
     assert result.exit_code != 0
     assert "can't be used together" in str(result.exception)
+
+
+# ---- --user / --password ------------------------------------------------------------------------------
+
+
+def test_user_and_password_set_the_login_for_both_ports():
+    result = runner.invoke(app, ["port", "set", "--user", "alice", "--password", "s3cret-pass"])
+    assert result.exit_code == 0, result.output
+    assert AuthStore().load() == ProxyAuth("alice", "s3cret-pass")
+    assert "s3cret-pass" not in result.output
+    assert "login required (user: alice)" in result.output
+    assert "v2rm env" in result.output  # says where to get the URLs with the login filled in
+
+    shown = runner.invoke(app, ["port", "show"])
+    assert "auth    required (user: alice)" in shown.output
+    assert "s3cret-pass" not in shown.output
+    if os.name == "posix":
+        assert stat.S_IMODE(paths.auth_file().stat().st_mode) == 0o600
+
+
+def test_a_user_without_a_password_is_asked_for_it_at_a_hidden_prompt():
+    result = runner.invoke(app, ["port", "set", "--user", "alice"], input="s3cret-pass\ns3cret-pass\n")
+    assert result.exit_code == 0, result.output
+    assert AuthStore().load() == ProxyAuth("alice", "s3cret-pass")
+    assert "Password for alice" in result.output
+    assert "s3cret-pass" not in result.output  # typed hidden, never echoed back
+
+
+def test_the_prompt_asks_again_until_both_entries_match():
+    result = runner.invoke(app, ["port", "set", "--user", "alice"], input="one\ntwo\nsame\nsame\n")
+    assert result.exit_code == 0, result.output
+    assert "do not match" in result.output
+    assert AuthStore().load() == ProxyAuth("alice", "same")
+
+
+def test_no_password_to_be_had_changes_nothing():
+    runner.invoke(app, ["port", "set", "--auth", "old:pw"])
+    result = runner.invoke(app, ["port", "set", "--user", "alice", "--socks", "11000"], input="")  # nothing to read
+    assert result.exit_code != 0
+    assert "No password was given" in str(result.exception) and "--password" in str(result.exception)
+    assert AuthStore().load() == ProxyAuth("old", "pw")
+    assert AppStateStore().load().socks_port == 10808  # the ports weren't touched either
+
+
+def test_a_password_alone_replaces_the_password_of_the_current_login():
+    runner.invoke(app, ["port", "set", "--auth", "alice:old-pass"])
+    result = runner.invoke(app, ["port", "set", "--password", "new-pass"])
+    assert result.exit_code == 0, result.output
+    assert AuthStore().load() == ProxyAuth("alice", "new-pass")
+    assert "new-pass" not in result.output
+
+
+def test_a_password_alone_needs_a_login_to_belong_to():
+    result = runner.invoke(app, ["port", "set", "--password", "pw"])
+    assert result.exit_code != 0
+    assert "--user" in str(result.exception)
+    assert AuthStore().load() is None
+
+
+def test_a_new_user_name_replaces_the_whole_login():
+    runner.invoke(app, ["port", "set", "--auth", "alice:old-pass"])
+    assert runner.invoke(app, ["port", "set", "--user", "bob", "--password", "bob-pass"]).exit_code == 0
+    assert AuthStore().load() == ProxyAuth("bob", "bob-pass")
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--auth", "a:b", "--user", "c"],
+        ["--auth", "a:b", "--password", "c"],
+        ["--no-auth", "--auth", "a:b"],
+        ["--no-auth", "--user", "alice"],
+        ["--no-auth", "--password", "pw"],
+    ],
+)
+def test_the_ways_of_naming_a_login_do_not_mix(args):
+    result = runner.invoke(app, ["port", "set", *args])
+    assert result.exit_code != 0
+    assert "can't be used together" in str(result.exception)
+    assert AuthStore().load() is None
+
+
+@pytest.mark.parametrize(
+    "args, message",
+    [
+        (["--user", "", "--password", "pw"], "user name can't be empty"),
+        (["--user", "alice", "--password", ""], "password can't be empty"),
+        (["--user", "al:ice", "--password", "pw"], "can't contain a colon"),
+        (["--user", "al\nice", "--password", "pw"], "control characters"),
+        (["--user", "alice", "--password", "p\x00w"], "control characters"),
+        (["--user", "u" * 256, "--password", "pw"], "user name is too long"),
+        (["--user", "alice", "--password", "p" * 256], "password is too long"),
+    ],
+)
+def test_bad_user_names_and_passwords_are_rejected(args, message):
+    result = runner.invoke(app, ["port", "set", *args])
+    assert result.exit_code != 0
+    assert message in str(result.exception)
+    assert AuthStore().load() is None
+
+
+def test_a_bad_user_name_is_refused_before_the_password_is_asked_for():
+    result = runner.invoke(app, ["port", "set", "--user", "al:ice"])
+    assert result.exit_code != 0 and "can't contain a colon" in str(result.exception)
+    assert "Password for" not in result.output
+
+
+def test_bad_ports_are_refused_before_the_password_is_asked_for():
+    result = runner.invoke(app, ["port", "set", "--user", "alice", "--socks", "99999"])
+    assert result.exit_code != 0 and "valid port number" in str(result.exception)
+    assert "Password for" not in result.output
+
+
+def test_a_user_name_with_markup_characters_is_printed_as_typed():
+    result = runner.invoke(app, ["port", "set", "--user", "[bold]x[/bold]", "--password", "pw"])
+    assert result.exit_code == 0, result.output
+    assert "(user: [bold]x[/bold])" in result.output
+    assert "(user: [bold]x[/bold])" in runner.invoke(app, ["port", "show"]).output
+
+
+def test_the_login_is_kept_when_only_the_ports_change():
+    runner.invoke(app, ["port", "set", "--user", "alice", "--password", "pw"])
+    result = runner.invoke(app, ["port", "set", "--socks", "11000"])
+    assert result.exit_code == 0, result.output
+    assert "login required (user: alice)" in result.output
+    assert AuthStore().load() == ProxyAuth("alice", "pw")
+
+
+def test_no_auth_means_no_user_name_and_no_password():
+    runner.invoke(app, ["port", "set", "--user", "alice", "--password", "pw"])
+    result = runner.invoke(app, ["port", "set", "--no-auth"])
+    assert result.exit_code == 0, result.output
+    assert "login not required" in result.output
+    assert AuthStore().load() is None
+    shown = runner.invoke(app, ["port", "show"])
+    assert "auth    none" in shown.output and "alice" not in shown.output
+
+
+def test_port_show_says_how_to_set_a_login_when_there_is_none():
+    assert "v2rm port set --user NAME" in runner.invoke(app, ["port", "show"]).output
+
+
+def test_a_login_keeps_the_open_proxy_warning_away_like_auth_does():
+    result = runner.invoke(app, ["port", "set", "--listen", "172.17.0.1", "--user", "alice", "--password", "pw"])
+    assert result.exit_code == 0, result.output
+    assert "no authentication" not in result.output and "ufw" not in result.output
+
+
+def test_a_login_set_while_connected_reconnects(connected):
+    result = runner.invoke(app, ["port", "set", "--user", "alice", "--password", "pw", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert connected == [None]
+    assert AuthStore().load() == ProxyAuth("alice", "pw")
+
+
+def test_nothing_to_change_names_the_login_options():
+    result = runner.invoke(app, ["port", "set"])
+    assert "--user" in result.output and "--no-auth" in result.output
+
+
+def test_moving_one_port_onto_the_other_one_is_refused():
+    # --socks alone, onto the HTTP port that is already there.
+    result = runner.invoke(app, ["port", "set", "--socks", "10809"])
+    assert result.exit_code != 0
+    assert "can't both be 10809" in str(result.exception)
+    assert AppStateStore().load().socks_port == 10808
 
 
 # ---- what the warnings say ------------------------------------------------------------------------

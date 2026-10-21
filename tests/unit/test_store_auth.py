@@ -119,6 +119,37 @@ def test_parse_limits_each_part_to_what_socks5_can_carry():
         ProxyAuth.parse("user:" + "é" * 128)
 
 
+def test_build_makes_a_login_from_its_two_parts():
+    assert ProxyAuth.build("demo", "pw") == ProxyAuth("demo", "pw")
+    assert ProxyAuth.build("démo", "a:b:c") == ProxyAuth("démo", "a:b:c")  # a password may hold colons
+
+
+@pytest.mark.parametrize(
+    "user, password, message",
+    [
+        ("", "pw", "user name can't be empty"),
+        ("demo", "", "password can't be empty"),
+        ("de:mo", "pw", "can't contain a colon"),
+        ("de\tmo", "pw", "user name contains control characters"),
+        ("demo", "p\x7fw", "password contains control characters"),
+        ("u" * (MAX_CREDENTIAL_BYTES + 1), "pw", "user name is too long"),
+        ("demo", "é" * 128, "password is too long"),
+    ],
+)
+def test_build_refuses_what_the_proxy_protocols_cannot_carry(user, password, message):
+    with pytest.raises(V2rmError, match=message):
+        ProxyAuth.build(user, password)
+
+
+def test_the_user_name_can_be_checked_on_its_own():
+    ProxyAuth.check_user("demo")
+    with pytest.raises(V2rmError, match="colon"):
+        ProxyAuth.check_user("a:b")
+    ProxyAuth.check_password("a:b")
+    with pytest.raises(V2rmError, match="empty"):
+        ProxyAuth.check_password("")
+
+
 def test_userinfo_percent_encodes_everything_that_could_break_a_url():
     assert ProxyAuth("us er", "p@ss:w/rd?#[]").userinfo() == "us%20er:p%40ss%3Aw%2Frd%3F%23%5B%5D"
     assert ProxyAuth("plain-name_1.x~", "pw").userinfo() == "plain-name_1.x~:pw"
